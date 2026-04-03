@@ -109,7 +109,7 @@
     "viz_rerun": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "[> RERUN AUDIT_](cursor://compose?prompt=Run%20the%20splunk-performance-audit%20skill%20on%20AM06%20and%20update%20the%20splunk-bot%20audit%20dashboard)",
+        "markdown": "> `./bin/splunk-bot-audit.sh`",
         "fontColor": "#00ff41"
       }
     },
