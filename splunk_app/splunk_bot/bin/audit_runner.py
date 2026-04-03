@@ -584,8 +584,16 @@ def audit_apps():
     app_entries = apps_data.get("entry", [])
     app_count = len(app_entries)
 
+    BUNDLED_APPS = {
+        "cyber_security_essentials_avert", "legacy", "sample_app",
+        "splunk_archiver", "SplunkForwarder", "SplunkLightForwarder",
+        "SplunkDeploymentServerConfig", "splunk_internal_metrics",
+        "splunk_metrics_workspace", "splunk_rapid_diag", "splunk_gdi",
+        "journald_input", "introspection_generator_addon",
+    }
     disabled_apps = [e.get("name", "?") for e in app_entries
-                     if e.get("content", {}).get("disabled", False)]
+                     if e.get("content", {}).get("disabled", False)
+                     and e.get("name", "") not in BUNDLED_APPS]
 
     if app_count > 50:
         record_finding("apps", "Apps", "app_count", "App Count",
@@ -609,23 +617,24 @@ def audit_apps():
                        "are permanently disabled to reduce conf load.".format(", ".join(disabled_apps[:10])))
         scores.append(80 if len(disabled_apps) < 5 else 60)
 
-    # 4.3 btool check
+    # 4.3 btool check — only count lines with "No spec file" (real warnings)
     btool_raw = run_cmd(
         "{}/bin/splunk btool check --debug 2>&1 | "
-        "grep -v -i 'cyber_security\\|compliance_essentials\\|Splunk_AI_Assistant\\|splunk_assist' | "
-        "head -20".format(SPLUNK_HOME)
+        "grep -i 'No spec file' | "
+        "grep -v -i 'cyber_security\\|compliance_essentials\\|Splunk_AI_Assistant\\|splunk_assist\\|Splunk_ML_Toolkit' | "
+        "head -10".format(SPLUNK_HOME)
     )
     btool_lines = [l for l in btool_raw.splitlines() if l.strip()]
     btool_count = len(btool_lines)
     if btool_count > 0:
-        sample = btool_lines[0][:120] if btool_lines else ""
+        sample = btool_lines[0].strip()[:120] if btool_lines else ""
         record_finding("apps", "Apps", "btool_check", "Config Validation",
-                       "{} warnings".format(btool_count), "WARNING",
-                       "btool check found config issues", 50,
-                       fix_prompt="btool check found {} config warnings. First issue: '{}'. "
-                       "Run: $SPLUNK_HOME/bin/splunk btool check --debug "
-                       "to see all issues and fix invalid stanzas or typos.".format(btool_count, sample))
-        scores.append(50)
+                       "{} missing spec files".format(btool_count), "WARNING",
+                       sample, 60,
+                       fix_prompt="btool found {} conf files without matching spec files: '{}'. "
+                       "Add README/*.conf.spec files for custom confs, or remove "
+                       "unused conf files.".format(btool_count, sample))
+        scores.append(60)
     else:
         record_finding("apps", "Apps", "btool_check", "Config Validation",
                        "Clean", "OK", "", 100)
@@ -821,6 +830,71 @@ def audit_search_performance():
                        "OK", "", 100)
         scores.append(100)
 
+    # 6.4 Wildcard index=* searches (exclude DM accelerations and system)
+    wildcard_results = splunk_search_oneshot(
+        'search index=_audit action=search info=granted earliest=-7d '
+        '| regex search="index\\s*=\\s*\\*" '
+        '| where NOT match(savedsearch_name, "^_ACCELERATE_") '
+        '| where user!="splunk-system-user" OR savedsearch_name!="" '
+        '| stats dc(savedsearch_name) as saved_ct count as total '
+        '| table saved_ct total'
+    )
+    wc_saved = safe_int(wildcard_results[0].get("saved_ct", 0)) if wildcard_results else 0
+    wc_total = safe_int(wildcard_results[0].get("total", 0)) if wildcard_results else 0
+
+    if wc_saved > 3:
+        record_finding("search", "Search Perf", "wildcard_index",
+                       "Wildcard Searches",
+                       "{} saved searches use index=*".format(wc_saved),
+                       "CRITICAL", "Full scan pattern detected — scans all indexes", 15,
+                       fix_prompt="{} saved searches use index=* which scans all indexes and "
+                       "degrades performance. Replace with explicit index names. "
+                       "Find them: | rest /services/saved/searches | search disabled=0 "
+                       "| where like(search, \"%index=*%\") | table title eai:acl.app search".format(wc_saved))
+        scores.append(15)
+    elif wc_saved > 0:
+        record_finding("search", "Search Perf", "wildcard_index",
+                       "Wildcard Searches",
+                       "{} saved searches use index=*".format(wc_saved),
+                       "WARNING", "Full scan pattern — replace with specific indexes", 50,
+                       fix_prompt="{} saved searches use index=*. Replace with explicit index names "
+                       "for better performance.".format(wc_saved))
+        scores.append(50)
+    else:
+        record_finding("search", "Search Perf", "wildcard_index",
+                       "Wildcard Searches", "No index=* patterns", "OK", "", 100)
+        scores.append(100)
+
+    # 6.5 Dispatch directory size
+    dispatch_raw = run_cmd("du -sm {}/var/run/splunk/dispatch 2>/dev/null".format(SPLUNK_HOME))
+    dispatch_mb = 0
+    if dispatch_raw:
+        parts = dispatch_raw.strip().split()
+        if parts:
+            dispatch_mb = safe_int(parts[0], 0)
+    dispatch_gb = round(dispatch_mb / 1024.0, 1)
+
+    if dispatch_mb > 10240:
+        record_finding("search", "Search Perf", "dispatch_dir",
+                       "Dispatch Dir", "{} GB".format(dispatch_gb),
+                       "CRITICAL", "dispatch >10GB — cleanup needed", 15,
+                       fix_prompt="Dispatch directory is {} GB. Clean old artifacts: "
+                       "find $SPLUNK_HOME/var/run/splunk/dispatch -maxdepth 1 -type d "
+                       "-mtime +3 -exec rm -rf {{}} +".format(dispatch_gb))
+        scores.append(15)
+    elif dispatch_mb > 5120:
+        record_finding("search", "Search Perf", "dispatch_dir",
+                       "Dispatch Dir", "{} GB".format(dispatch_gb),
+                       "WARNING", "dispatch growing large", 50,
+                       fix_prompt="Dispatch directory at {} GB. Consider reducing "
+                       "default_save_ttl in limits.conf and cleaning stale jobs.".format(dispatch_gb))
+        scores.append(50)
+    else:
+        record_finding("search", "Search Perf", "dispatch_dir",
+                       "Dispatch Dir", "{} GB".format(dispatch_gb),
+                       "OK", "", 100)
+        scores.append(100)
+
     score = calc_domain_score(scores)
     record_domain_score("search", "Search Perf", score, 20)
     return score
@@ -899,7 +973,8 @@ def audit_indexes():
         if evts > 0:
             active_count += 1
             total_mb += size
-        elif not disabled and not name.startswith("_"):
+        elif not disabled and not name.startswith("_") \
+                and name not in ("history", "summary"):
             dead_count += 1
             dead_names.append(name)
 

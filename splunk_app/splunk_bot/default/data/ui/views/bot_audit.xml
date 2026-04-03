@@ -7,106 +7,136 @@
     "ds_score": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval value=overall_score | table value",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=overall_score | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_status": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval value=overall_status | table value",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=overall_status | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_critical": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval value=critical_count | table value",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=critical_count | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_warning": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval value=warning_count | table value",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=warning_count | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_info": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval value=info_count | table value",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=info_count | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_ok": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval value=ok_count | table value",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=ok_count | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_domains": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=domain_score earliest=-90d latest=now | sort -_time | dedup domain | table domain_label domain_score | sort -domain_score | rename domain_label as Domain, domain_score as Score",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=domain_score | dedup domain | table domain_label domain_score | sort -domain_score | rename domain_label as Domain, domain_score as Score",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_score_trend": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort _time | dedup audit_id | timechart span=1d latest(overall_score) as Score | fields - _span _spandays",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | dedup audit_id sortby _time | timechart span=1d latest(overall_score) as Score | fields - _span _spandays",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_critical_findings": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=finding severity=CRITICAL earliest=-90d latest=now | sort -_time | dedup check | eval Severity=\">> CRITICAL\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=CRITICAL | dedup check | eval Severity=\">> CRITICAL\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_warning_findings": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=finding severity=WARNING earliest=-90d latest=now | sort -_time | dedup check | eval Severity=\">> WARNING\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=WARNING | dedup check | eval Severity=\">> WARNING\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_info_findings": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=finding severity=INFO earliest=-90d latest=now | sort -_time | dedup check | eval Severity=\">> INFO\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=INFO | dedup check | eval Severity=\">> INFO\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_ok_findings": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=finding severity=OK earliest=-90d latest=now | sort -_time | dedup check | eval Severity=\">> OK\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=OK | dedup check | eval Severity=\">> OK\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_audit_log": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" earliest=-90d latest=now | sort -_time | head 5 | eval log=\"[\".audit_time.\"] \".event_type.\" | \".if(event_type=\"summary\", \"score=\".overall_score.\" status=\".overall_status, domain_label.\" > \".check_label.\" = \".severity) | table log | rename log as \"Terminal Output\"",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | head 5 | eval log=\"[\".audit_time.\"] \".event_type.\" | \".if(event_type=\"summary\", \"score=\".overall_score.\" status=\".overall_status, domain_label.\" > \".check_label.\" = \".severity) | table log | rename log as \"Terminal Output\"",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_last_audit": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval last_run=audit_time.\" | score=\".overall_score.\" | \".overall_status | table last_run",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval last_run=audit_time.\" | score=\".overall_score.\" | \".overall_status | table last_run",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     },
     "ds_fix_prompt": {
       "type": "ds.search",
       "options": {
-        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=finding severity!=OK earliest=-90d latest=now | sort -_time | dedup check | where isnotnull(fix_prompt) AND fix_prompt!=\"\" | eval line=\"[\" . severity . \"] \" . check_label . \": \" . result . \" — FIX: \" . fix_prompt | stats values(line) as lines | eval prompt=\"I just ran a SPLUNK-BOT audit on my Splunk Enterprise instance. Here are the findings that need attention:\\n\\n\" . mvjoin(lines, \"\\n\\n\") . \"\\n\\nPlease help me fix these issues. For each finding, provide the specific commands or config changes needed. My SPLUNK_HOME is /opt/splunk and I am user dave with SSH access.\" | table prompt",
-        "queryParameters": {"earliest":"-90d","latest":"now"}
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity!=OK | dedup check | where isnotnull(fix_prompt) AND fix_prompt!=\"\" | eval line=\"[\" . severity . \"] \" . check_label . \": \" . result . \" — FIX: \" . fix_prompt | stats values(line) as lines | eval prompt=\"I just ran a SPLUNK-BOT audit on my Splunk Enterprise instance. Here are the findings that need attention:\\n\\n\" . mvjoin(lines, \"\\n\\n\") . \"\\n\\nPlease help me fix these issues. For each finding, provide the specific commands or config changes needed. My SPLUNK_HOME is /opt/splunk and I am user dave with SSH access.\" | table prompt",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
       }
     }
   },

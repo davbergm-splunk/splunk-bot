@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#0a1a0a"/>
+      <stop offset="100%" stop-color="#020502"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="72" height="72" rx="12" fill="url(#bg)"/>
+  <rect x="1" y="1" width="70" height="70" rx="11" fill="none" stroke="#00ff41" stroke-width="0.8" opacity="0.3"/>
+
+  <g filter="url(#glow)">
+    <!-- Antennae -->
+    <line x1="28" y1="14" x2="24" y2="8" stroke="#00ff41" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="24" cy="7" r="1.8" fill="#00ff41"/>
+    <line x1="44" y1="14" x2="48" y2="8" stroke="#00ff41" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="48" cy="7" r="1.8" fill="#00ff41"/>
+
+    <!-- Head -->
+    <rect x="20" y="14" width="32" height="18" rx="8" fill="none" stroke="#00ff41" stroke-width="1.8"/>
+
+    <!-- Eyes -->
+    <circle cx="30" cy="23" r="2.5" fill="#00ff41"/>
+    <circle cx="42" cy="23" r="2.5" fill="#00ff41"/>
+
+    <!-- Body -->
+    <rect x="22" y="34" width="28" height="22" rx="4" fill="none" stroke="#00ff41" stroke-width="1.8"/>
+
+    <!-- Body grid lines (circuit board look) -->
+    <line x1="30" y1="38" x2="30" y2="52" stroke="#00ff41" stroke-width="0.5" opacity="0.4"/>
+    <line x1="36" y1="38" x2="36" y2="52" stroke="#00ff41" stroke-width="0.5" opacity="0.4"/>
+    <line x1="42" y1="38" x2="42" y2="52" stroke="#00ff41" stroke-width="0.5" opacity="0.4"/>
+    <line x1="26" y1="42" x2="46" y2="42" stroke="#00ff41" stroke-width="0.5" opacity="0.4"/>
+    <line x1="26" y1="48" x2="46" y2="48" stroke="#00ff41" stroke-width="0.5" opacity="0.4"/>
+
+    <!-- Arms -->
+    <rect x="13" y="36" width="6" height="16" rx="3" fill="none" stroke="#00ff41" stroke-width="1.8"/>
+    <rect x="53" y="36" width="6" height="16" rx="3" fill="none" stroke="#00ff41" stroke-width="1.8"/>
+
+    <!-- Legs -->
+    <rect x="27" y="57" width="6" height="10" rx="3" fill="none" stroke="#00ff41" stroke-width="1.8"/>
+    <rect x="39" y="57" width="6" height="10" rx="3" fill="none" stroke="#00ff41" stroke-width="1.8"/>
+  </g>
+
+  <!-- Scanline overlay -->
+  <defs>
+    <pattern id="scan" width="1" height="4" patternUnits="userSpaceOnUse">
+      <rect width="1" height="2" fill="rgba(0,255,65,0.04)"/>
+    </pattern>
+  </defs>
+  <rect width="72" height="72" rx="12" fill="url(#scan)" opacity="0.5"/>
+</svg>

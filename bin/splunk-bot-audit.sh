@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 ###############################################################################
 # SPLUNK-BOT Audit Runner
@@ -24,6 +24,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 SSH_USER="${SSH_USER:-dave}"
 SSH_HOST="${SSH_HOST:-192.168.1.114}"
+SSH_PORT="${SSH_PORT:-22}"
+SSH_PASS="${SSH_PASS:-}"
 SPLUNK_HOME="${SPLUNK_HOME_REMOTE:-/opt/splunk}"
 SPLUNK_USER="${SPLUNK_USER:-admin}"
 SPLUNK_PASS="${SPLUNK_PASS:-}"
@@ -61,16 +63,18 @@ Usage: $0 [OPTIONS]
 
 Options:
   --host HOST        Splunk host IP/hostname (default: \$SSH_HOST or 192.168.1.114)
+  --port PORT        SSH port (default: \$SSH_PORT or 22)
   --user USER        SSH user (default: \$SSH_USER or dave)
   --key  PATH        SSH key path (default: \$SSH_KEY or ~/.ssh/id_ed25519)
+  --ssh-pass PASS    SSH password (uses sshpass instead of key auth)
   --splunk-user USER Splunk admin user (default: \$SPLUNK_USER or admin)
   --splunk-pass PASS Splunk admin password (default: \$SPLUNK_PASS)
   --dry-run          Show commands without executing
   --help             Show this help
 
 Environment:
-  Source a .env file or export SSH_HOST, SSH_USER, SSH_KEY,
-  SPLUNK_USER, SPLUNK_PASS before running.
+  Source a .env file or export SSH_HOST, SSH_USER, SSH_KEY, SSH_PORT,
+  SSH_PASS, SPLUNK_USER, SPLUNK_PASS before running.
 USAGE
     exit 0
 }
@@ -78,8 +82,10 @@ USAGE
 while [[ $# -gt 0 ]]; do
     case $1 in
         --host)       SSH_HOST="$2"; shift 2;;
+        --port)       SSH_PORT="$2"; shift 2;;
         --user)       SSH_USER="$2"; shift 2;;
         --key)        SSH_KEY="$2"; shift 2;;
+        --ssh-pass)   SSH_PASS="$2"; shift 2;;
         --splunk-user) SPLUNK_USER="$2"; shift 2;;
         --splunk-pass) SPLUNK_PASS="$2"; shift 2;;
         --dry-run)    DRY_RUN=1; shift;;
@@ -100,13 +106,19 @@ if [[ -z "$SPLUNK_PASS" ]]; then
 fi
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
+SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+
 ssh_cmd() {
     if [[ $DRY_RUN -eq 1 ]]; then
-        echo -e "${DIM}[DRY-RUN] ssh -i $SSH_KEY $SSH_USER@$SSH_HOST '$1'${RST}" >&2
+        echo -e "${DIM}[DRY-RUN] ssh ... '$1'${RST}" >&2
         echo ""
         return 0
     fi
-    ssh -i "$SSH_KEY" -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "$SSH_USER@$SSH_HOST" "$1" 2>/dev/null || echo ""
+    if [[ -n "$SSH_PASS" ]]; then
+        sshpass -p "$SSH_PASS" ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "$1" 2>/dev/null || echo ""
+    else
+        ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "$1" 2>/dev/null || echo ""
+    fi
 }
 
 splunk_search() {
@@ -126,13 +138,15 @@ severity_color() {
 }
 
 banner() {
+    local host_display="${SSH_HOST}"
+    [[ "$SSH_PORT" != "22" ]] && host_display="${SSH_HOST}:${SSH_PORT}"
     echo ""
     echo -e "${GRN}┌──────────────────────────────────────────────────┐${RST}"
     echo -e "${GRN}│${RST}  ${BLD}> SPLUNK-BOT v${VERSION}${RST}                              ${GRN}│${RST}"
     echo -e "${GRN}│${RST}  ${DIM}Platform Audit Terminal${RST}                          ${GRN}│${RST}"
     echo -e "${GRN}│${RST}                                                  ${GRN}│${RST}"
-    echo -e "${GRN}│${RST}  Host: ${BLD}${SSH_HOST}${RST}                           ${GRN}│${RST}"
-    echo -e "${GRN}│${RST}  Date: ${BLD}${TODAY}${RST}                              ${GRN}│${RST}"
+    printf "${GRN}│${RST}  Host: ${BLD}%-40s${RST} ${GRN}│${RST}\n" "$host_display"
+    printf "${GRN}│${RST}  Date: ${BLD}%-40s${RST} ${GRN}│${RST}\n" "$TODAY"
     echo -e "${GRN}└──────────────────────────────────────────────────┘${RST}"
     echo ""
 }
@@ -173,7 +187,7 @@ record_finding() {
     local escaped_detail
     escaped_detail=$(echo "$detail" | sed 's/"/\\"/g')
 
-    FINDINGS+=("{\"audit_time\":\"${NOW}\",\"audit_id\":\"${AUDIT_ID}\",\"host\":\"$(echo "$SSH_HOST" | sed 's/[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*/am06/')\",\"splunk_version\":\"${SPLUNK_VER}\",\"event_type\":\"finding\",\"domain\":\"${domain}\",\"domain_label\":\"${domain_label}\",\"check\":\"${check}\",\"check_label\":\"${check_label}\",\"result\":\"${escaped_result}\",\"severity\":\"${severity}\",\"detail\":\"${escaped_detail}\",\"score\":${score}}")
+    FINDINGS+=("{\"audit_time\":\"${NOW}\",\"audit_id\":\"${AUDIT_ID}\",\"host\":\"${AUDIT_HOST:-${SSH_HOST}}\",\"splunk_version\":\"${SPLUNK_VER}\",\"event_type\":\"finding\",\"domain\":\"${domain}\",\"domain_label\":\"${domain_label}\",\"check\":\"${check}\",\"check_label\":\"${check_label}\",\"result\":\"${escaped_result}\",\"severity\":\"${severity}\",\"detail\":\"${escaped_detail}\",\"score\":${score}}")
 }
 
 record_domain_score() {
@@ -184,7 +198,7 @@ record_domain_score() {
     local weighted
     weighted=$(echo "$domain_score $domain_weight" | awk '{printf "%.1f", $1 * $2 / 100}')
 
-    DOMAIN_SCORES+=("{\"audit_time\":\"${NOW}\",\"audit_id\":\"${AUDIT_ID}\",\"host\":\"am06\",\"splunk_version\":\"${SPLUNK_VER}\",\"event_type\":\"domain_score\",\"domain\":\"${domain}\",\"domain_label\":\"${domain_label}\",\"domain_score\":${domain_score},\"domain_weight\":${domain_weight},\"weighted_score\":${weighted}}")
+    DOMAIN_SCORES+=("{\"audit_time\":\"${NOW}\",\"audit_id\":\"${AUDIT_ID}\",\"host\":\"${AUDIT_HOST:-${SSH_HOST}}\",\"splunk_version\":\"${SPLUNK_VER}\",\"event_type\":\"domain_score\",\"domain\":\"${domain}\",\"domain_label\":\"${domain_label}\",\"domain_score\":${domain_score},\"domain_weight\":${domain_weight},\"weighted_score\":${weighted}}")
 }
 
 calc_domain_score() {
@@ -214,7 +228,9 @@ fi
 
 SPLUNK_VER=$(echo "$CONN_TEST" | sed -n 's/.*Splunk \([0-9.]*\).*/\1/p' | head -1)
 SPLUNK_VER=${SPLUNK_VER:-unknown}
-echo -e "${GRN}> Connected. Splunk ${SPLUNK_VER}${RST}"
+AUDIT_HOST=$(ssh_cmd "hostname" | tr -d '[:space:]')
+AUDIT_HOST=${AUDIT_HOST:-$SSH_HOST}
+echo -e "${GRN}> Connected. Splunk ${SPLUNK_VER} on ${AUDIT_HOST}${RST}"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DOMAIN 1: System Health
@@ -314,8 +330,8 @@ else
 fi
 
 # 1.5 KV Store
-KVSTORE=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk show kvstore-status -auth ${SPLUNK_USER}:${SPLUNK_PASS} 2>/dev/null | grep -i 'current status' | head -1" || echo "")
-if [[ "$KVSTORE" == *"ready"* ]]; then
+KVSTORE=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk show kvstore-status -auth ${SPLUNK_USER}:${SPLUNK_PASS} 2>/dev/null | grep -iE 'current status|backupRestoreStatus' | head -1" || echo "")
+if [[ "$KVSTORE" == *"ready"* || "$KVSTORE" == *"Ready"* ]]; then
     record_finding "system_health" "System Health" "kvstore" "KV Store" \
         "Ready" "OK" "" 100
     D1_SCORES+=(100)
@@ -338,13 +354,13 @@ record_domain_score "system_health" "System Health" "$D1_SCORE" 15
 domain_header 2 "LICENSING"
 D2_SCORES=()
 
-# 2.1 License type
-LIC_TYPE=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk list licenser-licenses -auth ${SPLUNK_USER}:${SPLUNK_PASS} 2>/dev/null | head -10")
+# 2.1 License type (use pools — works across all Splunk versions)
+LIC_TYPE=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk list licenser-pools -auth ${SPLUNK_USER}:${SPLUNK_PASS} 2>/dev/null | head -20")
 if [[ "$LIC_TYPE" == *"enterprise"* || "$LIC_TYPE" == *"Enterprise"* ]]; then
     record_finding "licensing" "Licensing" "license_type" "License Type" \
         "Enterprise" "OK" "" 100
     D2_SCORES+=(100)
-elif [[ "$LIC_TYPE" == *"trial"* || "$LIC_TYPE" == *"Trial"* ]]; then
+elif [[ "$LIC_TYPE" == *"trial"* || "$LIC_TYPE" == *"Trial"* || "$LIC_TYPE" == *"download-trial"* ]]; then
     record_finding "licensing" "Licensing" "license_type" "License Type" \
         "Trial" "WARNING" "Trial license — temporary" 50
     D2_SCORES+=(50)
@@ -382,8 +398,8 @@ record_domain_score "licensing" "Licensing" "$D2_SCORE" 10
 domain_header 3 "CLUSTERING"
 D3_SCORES=()
 
-CLUSTER_CHECK=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk show cluster-config -auth ${SPLUNK_USER}:${SPLUNK_PASS} 2>&1 || echo 'CLUSTERING_DISABLED'")
-if [[ "$CLUSTER_CHECK" == *"CLUSTERING_DISABLED"* || "$CLUSTER_CHECK" == *"not enabled"* || "$CLUSTER_CHECK" == *"disabled"* ]]; then
+CLUSTER_CHECK=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk show cluster-status -auth ${SPLUNK_USER}:${SPLUNK_PASS} 2>&1 || echo 'CLUSTERING_DISABLED'")
+if [[ "$CLUSTER_CHECK" == *"CLUSTERING_DISABLED"* || "$CLUSTER_CHECK" == *"not enabled"* || "$CLUSTER_CHECK" == *"disabled"* || "$CLUSTER_CHECK" == *"not a valid"* || -z "$CLUSTER_CHECK" ]]; then
     record_finding "clustering" "Clustering" "cluster_mode" "Cluster Mode" \
         "Standalone (no clustering)" "OK" "Single node — clustering N/A" 100
     D3_SCORES+=(100)
@@ -417,8 +433,9 @@ else
 fi
 
 # 4.2 btool check
-BTOOL_ERRORS=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk btool check --debug 2>&1 | grep -v 'cyber_security\|compliance_essentials\|Splunk_AI_Assistant' | head -20")
-BTOOL_COUNT=$(echo "$BTOOL_ERRORS" | grep -c "." 2>/dev/null || echo "0")
+BTOOL_ERRORS=$(ssh_cmd "${SPLUNK_HOME}/bin/splunk btool check --debug 2>&1 | grep -iE 'Invalid|Error|unknown' | grep -v 'cyber_security\|compliance_essentials\|Splunk_AI_Assistant' | head -20")
+BTOOL_COUNT=$(echo "$BTOOL_ERRORS" | grep -c '.' 2>/dev/null || echo "0")
+[[ -z "$BTOOL_ERRORS" ]] && BTOOL_COUNT=0
 
 if [[ $BTOOL_COUNT -gt 0 && -n "$BTOOL_ERRORS" ]]; then
     record_finding "apps" "Apps" "btool_check" "Config Validation" \
@@ -622,7 +639,7 @@ echo -e "    ${RED}CRITICAL:${RST} ${CRITICAL_COUNT}  ${YEL}WARNING:${RST} ${WAR
 echo ""
 
 # ─── Write JSON events to Splunk ────────────────────────────────────────────
-SUMMARY_JSON="{\"audit_time\":\"${NOW}\",\"audit_id\":\"${AUDIT_ID}\",\"host\":\"am06\",\"splunk_version\":\"${SPLUNK_VER}\",\"event_type\":\"summary\",\"overall_score\":${OVERALL_SCORE},\"overall_status\":\"${OVERALL_STATUS}\",\"critical_count\":${CRITICAL_COUNT},\"warning_count\":${WARNING_COUNT},\"info_count\":${INFO_COUNT},\"ok_count\":${OK_COUNT},\"domains_audited\":8}"
+SUMMARY_JSON="{\"audit_time\":\"${NOW}\",\"audit_id\":\"${AUDIT_ID}\",\"host\":\"${AUDIT_HOST:-${SSH_HOST}}\",\"splunk_version\":\"${SPLUNK_VER}\",\"event_type\":\"summary\",\"overall_score\":${OVERALL_SCORE},\"overall_status\":\"${OVERALL_STATUS}\",\"critical_count\":${CRITICAL_COUNT},\"warning_count\":${WARNING_COUNT},\"info_count\":${INFO_COUNT},\"ok_count\":${OK_COUNT},\"domains_audited\":8}"
 
 ALL_EVENTS="$SUMMARY_JSON"
 for ds in "${DOMAIN_SCORES[@]}"; do
@@ -634,7 +651,11 @@ done
 
 if [[ $DRY_RUN -eq 0 ]]; then
     echo -e "${GRN}> Writing events to Splunk index...${RST}"
-    echo -e "$ALL_EVENTS" | ssh -i "$SSH_KEY" "$SSH_USER@$SSH_HOST" "mkdir -p ${AUDIT_LOG_DIR} && cat > ${AUDIT_LOG_DIR}/audit_${TODAY}.json"
+    if [[ -n "$SSH_PASS" ]]; then
+        echo -e "$ALL_EVENTS" | sshpass -p "$SSH_PASS" ssh "${SSH_OPTS[@]}" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p ${AUDIT_LOG_DIR} && cat > ${AUDIT_LOG_DIR}/audit_${TODAY}.json" 2>/dev/null
+    else
+        echo -e "$ALL_EVENTS" | ssh -i "$SSH_KEY" "${SSH_OPTS[@]}" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p ${AUDIT_LOG_DIR} && cat > ${AUDIT_LOG_DIR}/audit_${TODAY}.json" 2>/dev/null
+    fi
     echo -e "${GRN}> Done. Events written to ${AUDIT_LOG_DIR}/audit_${TODAY}.json${RST}"
 else
     echo -e "${DIM}[DRY-RUN] Would write ${TOTAL_FINDINGS} findings + 8 domain scores + 1 summary${RST}"

@@ -1,15 +1,19 @@
-# SPLUNK-BOT
+<p align="center">
+  <img src="docs/splunk-bot-icon.png" width="128" alt="SPLUNK-BOT"/>
+</p>
 
-A retro terminal-themed Splunk app for platform health auditing. Scores your Splunk instance across 8 domains, rates findings by severity, and displays everything in a CRT green phosphor dashboard.
+<h1 align="center">SPLUNK-BOT</h1>
+
+<p align="center">A retro terminal-themed Splunk app for platform health auditing.<br/>Scores your Splunk instance across 8 domains, rates findings by severity, and displays everything in a CRT green phosphor dashboard.</p>
 
 ```
 > SPLUNK-BOT v1.0.0 — Platform Audit Terminal
 > ____________________________________________
 >
-> HEALTH_SCORE: 63 / 100
+> HEALTH_SCORE: 88 / 100
 > SYS_STATUS:   WARNING
 >
-> >> CRITICAL: 2  >> WARNING: 5  >> INFO: 8  >> PASS: 20
+> >> CRITICAL: 0  >> WARNING: 2  >> INFO: 3  >> PASS: 12
 >
 > [scanning domains...]
 ```
