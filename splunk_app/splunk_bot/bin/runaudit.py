@@ -1,48 +1,70 @@
 """
 SPLUNK-BOT custom search command: | runaudit
 
-Executes the audit_runner inline and returns results as a search result
-table so the dashboard can trigger and display status.
+Executes the audit_runner and returns results as a search result table.
 
-Splunk protocol for custom search commands with passauth:
-  - Line 1 of stdin: the auth token (session key)
-  - Remaining stdin: CSV data (empty for generating commands)
+Auth strategy: Since Splunk's passauth session keys cannot call REST
+endpoints, this script authenticates itself by reading admin credentials
+from $SPLUNK_HOME/etc/apps/splunk_bot/local/audit_creds.conf. This file
+is NOT shipped with the app — create it on the Splunk host:
+
+  [auth]
+  username = admin
+  password = <your_admin_password>
 """
 
+import configparser
 import csv
 import json
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import audit_runner
 
 
-def read_session_key():
-    """Read the session key that Splunk passes as the first line of stdin
-    when passauth is configured in commands.conf."""
+SPLUNK_HOME = os.environ.get("SPLUNK_HOME", "/opt/splunk")
+CREDS_PATH = os.path.join(
+    SPLUNK_HOME, "etc", "apps", "splunk_bot", "local", "audit_creds.conf"
+)
 
-    if not sys.stdin.isatty():
-        first_line = sys.stdin.readline().strip()
-        if first_line:
-            return first_line
 
-    return os.environ.get("SPLUNK_SESSION_KEY", "")
+def get_admin_session_key():
+    """Authenticate as admin by reading local credentials file."""
+    if not os.path.exists(CREDS_PATH):
+        sys.stderr.write("audit_creds.conf not found at {}\n".format(CREDS_PATH))
+        return None
+
+    cfg = configparser.ConfigParser()
+    cfg.read(CREDS_PATH)
+
+    user = cfg.get("auth", "username", fallback="admin")
+    password = cfg.get("auth", "password", fallback="")
+    if not password:
+        sys.stderr.write("No password in audit_creds.conf\n")
+        return None
+
+    try:
+        return audit_runner.auth_with_password(user, password)
+    except Exception as e:
+        sys.stderr.write("Auth failed: {}\n".format(e))
+        return None
 
 
 def main():
-    session_key = read_session_key()
+    # Drain stdin (passauth sends session key on line 1, but we don't use it)
+    if not sys.stdin.isatty():
+        try:
+            sys.stdin.read()
+        except Exception:
+            pass
 
-    # Drain any remaining stdin
-    try:
-        sys.stdin.read()
-    except Exception:
-        pass
-
+    session_key = get_admin_session_key()
     if session_key:
         audit_runner.SESSION_KEY = session_key
     else:
+        # Last resort: try passauth key from stdin (already drained, won't work)
+        # or env var
         audit_runner.get_session_key()
 
     if not audit_runner.SESSION_KEY:
@@ -50,7 +72,9 @@ def main():
         writer.writeheader()
         writer.writerow({
             "status": "ERROR",
-            "message": "Could not obtain session key"
+            "message": "Could not authenticate. Create "
+                       "$SPLUNK_HOME/etc/apps/splunk_bot/local/audit_creds.conf "
+                       "with [auth] username=admin password=<pass>"
         })
         return
 
@@ -77,12 +101,10 @@ def main():
     for ds in audit_runner.DOMAIN_SCORES:
         overall_score += int(ds.get("weighted_score", 0))
 
-    hostname = audit_runner.run_cmd("hostname").split(".")[0] or "splunk"
-
     summary = {
         "audit_time": audit_runner.NOW,
         "audit_id": audit_runner.AUDIT_ID,
-        "host": hostname,
+        "host": audit_runner._hostname(),
         "splunk_version": audit_runner.SPLUNK_VER,
         "event_type": "summary",
         "overall_score": overall_score,

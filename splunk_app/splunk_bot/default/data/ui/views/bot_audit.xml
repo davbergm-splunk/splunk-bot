@@ -101,6 +101,13 @@
         "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval last_run=audit_time.\" | score=\".overall_score.\" | \".overall_status | table last_run",
         "queryParameters": {"earliest":"-90d","latest":"now"}
       }
+    },
+    "ds_fix_prompt": {
+      "type": "ds.search",
+      "options": {
+        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=finding severity!=OK earliest=-90d latest=now | sort -_time | dedup check | where isnotnull(fix_prompt) AND fix_prompt!=\"\" | eval line=\"[\" . severity . \"] \" . check_label . \": \" . result . \" — FIX: \" . fix_prompt | stats values(line) as lines | eval prompt=\"I just ran a SPLUNK-BOT audit on my Splunk Enterprise instance. Here are the findings that need attention:\\n\\n\" . mvjoin(lines, \"\\n\\n\") . \"\\n\\nPlease help me fix these issues. For each finding, provide the specific commands or config changes needed. My SPLUNK_HOME is /opt/splunk and I am user dave with SSH access.\" | table prompt",
+        "queryParameters": {"earliest":"-90d","latest":"now"}
+      }
     }
   },
   "defaults": {},
@@ -260,13 +267,31 @@
       "dataSources": {"primary": "ds_last_audit"},
       "options": {"majorFontSize":20,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
       "containerOptions": {"title": {"color": "#00ff41"}}
+    },
+    "card_fix_prompt": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#0a1a0a","fillOpacity":0.9,"strokeColor":"#ffcc00","strokeDashStyle":1,"rx":4}
+    },
+    "viz_fix_label": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "### > FIX_PROMPT_GENERATOR\n_Auto-generated prompt from non-OK findings. Copy and paste into Cursor/ChatGPT to get fix commands._",
+        "fontColor": "#ffcc00"
+      }
+    },
+    "viz_fix_prompt": {
+      "type": "splunk.table",
+      "title": ">> COPY_THIS_PROMPT",
+      "dataSources": {"primary": "ds_fix_prompt"},
+      "options": {"backgroundColor":"transparent","count":1,"wrap":true},
+      "containerOptions": {"title": {"color": "#ffcc00"}}
     }
   },
   "layout": {
     "type": "absolute",
     "options": {
       "width": 1440,
-      "height": 2100,
+      "height": 2350,
       "display": "auto-scale",
       "backgroundColor": "transparent",
       "backgroundImage": {"sizeType":"contain","x":0,"y":0,"src":"/static/app/splunk_bot/terminal_bg.svg"}
@@ -301,9 +326,13 @@
       {"item":"card_log","type":"block","position":{"x":16,"y":1218,"w":1408,"h":200}},
       {"item":"viz_audit_log","type":"block","position":{"x":24,"y":1218,"w":1392,"h":200}},
 
-      {"item":"card_run_audit","type":"block","position":{"x":16,"y":1432,"w":1408,"h":140}},
-      {"item":"viz_run_info","type":"block","position":{"x":24,"y":1432,"w":900,"h":140}},
-      {"item":"viz_last_audit","type":"block","position":{"x":940,"y":1432,"w":470,"h":140}}
+      {"item":"card_fix_prompt","type":"block","position":{"x":16,"y":1432,"w":1408,"h":320}},
+      {"item":"viz_fix_label","type":"block","position":{"x":24,"y":1432,"w":1392,"h":60}},
+      {"item":"viz_fix_prompt","type":"block","position":{"x":24,"y":1496,"w":1392,"h":250}},
+
+      {"item":"card_run_audit","type":"block","position":{"x":16,"y":1766,"w":1408,"h":140}},
+      {"item":"viz_run_info","type":"block","position":{"x":24,"y":1766,"w":900,"h":140}},
+      {"item":"viz_last_audit","type":"block","position":{"x":940,"y":1766,"w":470,"h":140}}
     ]
   }
 }

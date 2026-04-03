@@ -11,14 +11,12 @@ Designed for Splunk embedded Python 3.9+ (no external dependencies).
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
-import time
 import urllib.request
 import urllib.error
+import urllib.parse
 import ssl
-import base64
 from datetime import datetime, timezone
 
 SPLUNK_HOME = os.environ.get("SPLUNK_HOME", "/opt/splunk")
@@ -38,6 +36,14 @@ WARNING_COUNT = 0
 INFO_COUNT = 0
 OK_COUNT = 0
 SPLUNK_VER = "unknown"
+HOSTNAME = "splunk"
+
+
+def _ssl_ctx():
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def get_session_key():
@@ -68,27 +74,21 @@ def get_session_key():
 
 def auth_with_password(user, password):
     """Authenticate to Splunk and get a session key."""
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
     url = "https://{}:{}/services/auth/login".format(SPLUNK_HOST, SPLUNK_MGMT_PORT)
-    data = "username={}&password={}&output_mode=json".format(
-        urllib.parse.quote(user), urllib.parse.quote(password)
-    ).encode("utf-8")
+    data = urllib.parse.urlencode({
+        "username": user,
+        "password": password,
+        "output_mode": "json",
+    }).encode("utf-8")
 
     req = urllib.request.Request(url, data=data, method="POST")
-    resp = urllib.request.urlopen(req, context=ctx)
+    resp = urllib.request.urlopen(req, context=_ssl_ctx())
     body = json.loads(resp.read().decode("utf-8"))
     return body.get("sessionKey", "")
 
 
-def splunk_rest(endpoint, params=None, method="GET"):
-    """Call Splunk REST API and return parsed JSON."""
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
+def splunk_rest(endpoint, params=None):
+    """Call Splunk REST API (GET) and return parsed JSON."""
     url = "https://{}:{}{}".format(SPLUNK_HOST, SPLUNK_MGMT_PORT, endpoint)
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -97,25 +97,22 @@ def splunk_rest(endpoint, params=None, method="GET"):
     if not key:
         return {}
 
-    req = urllib.request.Request(url, method=method)
+    req = urllib.request.Request(url, method="GET")
     req.add_header("Authorization", "Splunk {}".format(key))
-    req.add_header("Content-Type", "application/json")
 
     try:
-        resp = urllib.request.urlopen(req, context=ctx)
+        resp = urllib.request.urlopen(req, context=_ssl_ctx())
         return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError:
+    except urllib.error.HTTPError as e:
+        sys.stderr.write("REST {} -> HTTP {}\n".format(endpoint, e.code))
         return {}
-    except Exception:
+    except Exception as e:
+        sys.stderr.write("REST {} -> {}\n".format(endpoint, e))
         return {}
 
 
 def splunk_search_oneshot(spl, max_count=100):
     """Run a oneshot search and return results."""
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-
     url = "https://{}:{}/services/search/jobs/oneshot".format(
         SPLUNK_HOST, SPLUNK_MGMT_PORT
     )
@@ -134,10 +131,11 @@ def splunk_search_oneshot(spl, max_count=100):
     req.add_header("Authorization", "Splunk {}".format(key))
 
     try:
-        resp = urllib.request.urlopen(req, context=ctx)
+        resp = urllib.request.urlopen(req, context=_ssl_ctx())
         body = json.loads(resp.read().decode("utf-8"))
         return body.get("results", [])
-    except Exception:
+    except Exception as e:
+        sys.stderr.write("ONESHOT error: {}\n".format(e))
         return []
 
 
@@ -152,8 +150,16 @@ def run_cmd(cmd):
         return ""
 
 
+def _hostname():
+    global HOSTNAME
+    if HOSTNAME == "splunk":
+        h = run_cmd("hostname")
+        HOSTNAME = h.split(".")[0] if h else "splunk"
+    return HOSTNAME
+
+
 def record_finding(domain, domain_label, check, check_label, result,
-                   severity, detail, score):
+                   severity, detail, score, fix_prompt=""):
     """Record an audit finding."""
     global CRITICAL_COUNT, WARNING_COUNT, INFO_COUNT, OK_COUNT
 
@@ -166,10 +172,10 @@ def record_finding(domain, domain_label, check, check_label, result,
     elif severity == "OK":
         OK_COUNT += 1
 
-    FINDINGS.append({
+    finding = {
         "audit_time": NOW,
         "audit_id": AUDIT_ID,
-        "host": run_cmd("hostname").split(".")[0] or "splunk",
+        "host": _hostname(),
         "splunk_version": SPLUNK_VER,
         "event_type": "finding",
         "domain": domain,
@@ -180,7 +186,10 @@ def record_finding(domain, domain_label, check, check_label, result,
         "severity": severity,
         "detail": detail,
         "score": score,
-    })
+    }
+    if fix_prompt:
+        finding["fix_prompt"] = fix_prompt
+    FINDINGS.append(finding)
 
 
 def record_domain_score(domain, domain_label, domain_score, weight):
@@ -189,7 +198,7 @@ def record_domain_score(domain, domain_label, domain_score, weight):
     DOMAIN_SCORES.append({
         "audit_time": NOW,
         "audit_id": AUDIT_ID,
-        "host": run_cmd("hostname").split(".")[0] or "splunk",
+        "host": _hostname(),
         "splunk_version": SPLUNK_VER,
         "event_type": "domain_score",
         "domain": domain,
@@ -207,6 +216,20 @@ def calc_domain_score(scores):
     return sum(scores) // len(scores)
 
 
+def safe_int(val, default=0):
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_float(val, default=0.0):
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # DOMAIN 1: System Health
 # ═══════════════════════════════════════════════════════════════════════════
@@ -222,14 +245,21 @@ def audit_system_health():
         content = entries[0].get("content", {})
         SPLUNK_VER = content.get("version", "unknown")
         build = content.get("build", "")
+        os_name = content.get("os_name", "")
         record_finding("system_health", "System Health", "splunk_version",
-                       "Splunk Version", "{} build {}".format(SPLUNK_VER, build),
+                       "Splunk Version",
+                       "{} build {} ({})".format(SPLUNK_VER, build, os_name),
                        "OK", "", 100)
+        scores.append(100)
     else:
         record_finding("system_health", "System Health", "splunk_version",
-                       "Splunk Version", "unknown", "INFO",
-                       "Could not query server info", 70)
-    scores.append(100)
+                       "Splunk Version", "unknown", "WARNING",
+                       "REST /services/server/info returned empty — check permissions",
+                       50,
+                       fix_prompt="Investigate why /services/server/info returns empty. "
+                       "Check that the audit script's session key has admin access. "
+                       "Run: curl -k -u admin:pass https://localhost:8089/services/server/info?output_mode=json")
+        scores.append(50)
 
     # 1.2 CPU / RAM
     cores = run_cmd("nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 0")
@@ -238,35 +268,43 @@ def audit_system_health():
         parts = mem_raw.split()
         total_gb = parts[1] if len(parts) > 1 else "?"
         avail_gb = parts[6] if len(parts) > 6 else parts[-1] if len(parts) > 1 else "?"
-        try:
-            avail_int = int(avail_gb)
+        avail_int = safe_int(avail_gb, -1)
+        if avail_int >= 0:
             if avail_int < 2:
                 record_finding("system_health", "System Health", "cpu_ram",
-                               "CPU/RAM", "{} cores, {}GB total, {}GB avail".format(
-                                   cores, total_gb, avail_gb),
-                               "CRITICAL", "Available RAM critically low", 10)
+                               "CPU/RAM",
+                               "{} cores, {}GB total, {}GB avail".format(cores, total_gb, avail_gb),
+                               "CRITICAL", "Available RAM critically low", 10,
+                               fix_prompt="Available RAM is under 2GB. Identify and stop memory-hungry "
+                               "processes or add more RAM. Check: ps aux --sort=-%mem | head -10")
                 scores.append(10)
             elif avail_int < 4:
                 record_finding("system_health", "System Health", "cpu_ram",
-                               "CPU/RAM", "{} cores, {}GB total, {}GB avail".format(
-                                   cores, total_gb, avail_gb),
-                               "WARNING", "<4 GB available", 45)
+                               "CPU/RAM",
+                               "{} cores, {}GB total, {}GB avail".format(cores, total_gb, avail_gb),
+                               "WARNING", "<4 GB available — monitor for pressure", 45,
+                               fix_prompt="Available RAM is under 4GB. Review Splunk memory usage and "
+                               "consider increasing server RAM or reducing concurrent search load.")
                 scores.append(45)
             else:
                 record_finding("system_health", "System Health", "cpu_ram",
-                               "CPU/RAM", "{} cores, {}GB total, {}GB avail".format(
-                                   cores, total_gb, avail_gb),
+                               "CPU/RAM",
+                               "{} cores, {}GB total, {}GB avail".format(cores, total_gb, avail_gb),
                                "OK", "", 100)
                 scores.append(100)
-        except ValueError:
+        else:
             record_finding("system_health", "System Health", "cpu_ram",
                            "CPU/RAM", "{} cores (RAM parse failed)".format(cores),
-                           "INFO", "Could not parse memory info", 70)
+                           "INFO", "Could not parse memory info", 70,
+                           fix_prompt="Could not parse 'free -g' output. Check that the command "
+                           "is available on this host and returns expected format.")
             scores.append(70)
     else:
         record_finding("system_health", "System Health", "cpu_ram",
                        "CPU/RAM", "{} cores (RAM N/A)".format(cores),
-                       "INFO", "No free command", 70)
+                       "INFO", "No free command — might be container or macOS", 70,
+                       fix_prompt="The 'free' command is not available. If running in a container, "
+                       "check /proc/meminfo directly or use 'cat /proc/meminfo | grep MemAvailable'.")
         scores.append(70)
 
     # 1.3 Disk space
@@ -279,27 +317,35 @@ def audit_system_health():
     if disk_pct > 95:
         record_finding("system_health", "System Health", "disk_space",
                        "Disk Space", "{}% used".format(disk_pct),
-                       "CRITICAL", "$SPLUNK_HOME partition critically full", 5)
+                       "CRITICAL", "$SPLUNK_HOME partition critically full", 5,
+                       fix_prompt="Disk is {}% full. Immediately free space: clean frozen buckets, "
+                       "purge old dispatch dirs, remove unused indexes. "
+                       "Run: du -sh {}/* | sort -rh | head -10".format(disk_pct, SPLUNK_HOME))
         scores.append(5)
     elif disk_pct > 85:
         record_finding("system_health", "System Health", "disk_space",
                        "Disk Space", "{}% used".format(disk_pct),
-                       "WARNING", "$SPLUNK_HOME >85% full", 30)
+                       "WARNING", "$SPLUNK_HOME >85% full", 30,
+                       fix_prompt="Disk is {}% full. Review index retention policies and clean "
+                       "dispatch directory. Consider adding storage or archiving cold data.".format(disk_pct))
         scores.append(30)
     elif disk_pct > 75:
         record_finding("system_health", "System Health", "disk_space",
                        "Disk Space", "{}% used".format(disk_pct),
-                       "WARNING", "$SPLUNK_HOME >75% full", 40)
+                       "WARNING", "$SPLUNK_HOME >75% full", 40,
+                       fix_prompt="Disk is {}% full. Plan capacity — review index sizes and "
+                       "retention. Set up monitoring alerts for 85% threshold.".format(disk_pct))
         scores.append(40)
     elif disk_pct > 0:
         record_finding("system_health", "System Health", "disk_space",
-                       "Disk Space", "{}% used".format(disk_pct),
-                       "OK", "", 100)
+                       "Disk Space", "{}% used".format(disk_pct), "OK", "", 100)
         scores.append(100)
     else:
         record_finding("system_health", "System Health", "disk_space",
                        "Disk Space", "Unable to determine", "INFO",
-                       "Could not parse df output", 70)
+                       "Could not parse df output", 70,
+                       fix_prompt="df command did not return expected output for {}. "
+                       "Check filesystem mounts manually.".format(SPLUNK_HOME))
         scores.append(70)
 
     # 1.4 Dispatch directory
@@ -313,13 +359,17 @@ def audit_system_health():
             if gb > 50:
                 record_finding("system_health", "System Health", "dispatch_dir",
                                "Dispatch Dir", dispatch_size,
-                               "CRITICAL", "dispatch >50GB", 5)
+                               "CRITICAL", "dispatch >50GB — urgent cleanup", 5,
+                               fix_prompt="Dispatch directory is {}. Purge stale search artifacts: "
+                               "$SPLUNK_HOME/bin/splunk clean-dispatch -f".format(dispatch_size))
                 scores.append(5)
             elif gb > 10:
                 record_finding("system_health", "System Health", "dispatch_dir",
                                "Dispatch Dir", dispatch_size,
-                               "CRITICAL", "dispatch >10GB", 10)
-                scores.append(10)
+                               "WARNING", "dispatch >10GB — cleanup needed", 30,
+                               fix_prompt="Dispatch directory is {}. Review long-running saved searches "
+                               "with dispatch.ttl settings. Clean old artifacts.".format(dispatch_size))
+                scores.append(30)
             elif gb > 5:
                 record_finding("system_health", "System Health", "dispatch_dir",
                                "Dispatch Dir", dispatch_size,
@@ -343,7 +393,11 @@ def audit_system_health():
     kv_entries = kv_data.get("entry", [])
     kv_status = "unknown"
     if kv_entries:
-        kv_status = kv_entries[0].get("content", {}).get("current", {}).get("status", "unknown")
+        current = kv_entries[0].get("content", {}).get("current", {})
+        if isinstance(current, dict):
+            kv_status = current.get("status", "unknown")
+        else:
+            kv_status = str(kv_entries[0].get("content", {}).get("status", "unknown"))
     if kv_status == "ready":
         record_finding("system_health", "System Health", "kvstore",
                        "KV Store", "Ready", "OK", "", 100)
@@ -351,11 +405,17 @@ def audit_system_health():
     elif kv_status in ("down", "degraded"):
         record_finding("system_health", "System Health", "kvstore",
                        "KV Store", kv_status.title(),
-                       "CRITICAL", "KV store not operational", 10)
+                       "CRITICAL", "KV store not operational", 10,
+                       fix_prompt="KV Store is {}. Restart KV store: "
+                       "$SPLUNK_HOME/bin/splunk restart splunkd. "
+                       "Check mongod logs in $SPLUNK_HOME/var/log/splunk/mongod.log".format(kv_status))
         scores.append(10)
     else:
         record_finding("system_health", "System Health", "kvstore",
-                       "KV Store", kv_status, "INFO", "", 70)
+                       "KV Store", kv_status, "INFO",
+                       "Could not determine KV store status", 70,
+                       fix_prompt="KV store status is '{}'. Verify with: "
+                       "$SPLUNK_HOME/bin/splunk show kvstore-status".format(kv_status))
         scores.append(70)
 
     score = calc_domain_score(scores)
@@ -381,6 +441,9 @@ def audit_licensing():
             break
         elif t == "trial":
             lic_type = "Trial"
+        elif t == "free":
+            lic_type = "Free"
+
     if lic_type == "Enterprise":
         record_finding("licensing", "Licensing", "license_type",
                        "License Type", "Enterprise", "OK", "", 100)
@@ -388,14 +451,60 @@ def audit_licensing():
     elif lic_type == "Trial":
         record_finding("licensing", "Licensing", "license_type",
                        "License Type", "Trial", "WARNING",
-                       "Trial license — temporary", 50)
+                       "Trial license — temporary", 50,
+                       fix_prompt="Splunk is running a Trial license which expires. "
+                       "Apply an Enterprise or Developer license via: "
+                       "Settings > Licensing > Add License")
         scores.append(50)
+    elif lic_type == "Free":
+        record_finding("licensing", "Licensing", "license_type",
+                       "License Type", "Free", "INFO",
+                       "Free license — limited to 500MB/day, no auth", 60,
+                       fix_prompt="Running on Free license (500MB/day, no authentication). "
+                       "Consider upgrading to Enterprise or Developer license for "
+                       "auth, alerting, and higher ingest limits.")
+        scores.append(60)
     else:
         record_finding("licensing", "Licensing", "license_type",
-                       "License Type", "Free/Unknown", "INFO", "", 70)
+                       "License Type", "Unknown", "INFO",
+                       "Could not determine license type", 70,
+                       fix_prompt="License type could not be determined. Check: "
+                       "$SPLUNK_HOME/bin/splunk list licenser-licenses")
         scores.append(70)
 
-    # 2.2 Violations
+    # 2.2 License usage vs quota
+    usage_results = splunk_search_oneshot(
+        'search index=_internal source=*license_usage.log type=Usage earliest=-1d '
+        '| stats sum(b) as bytes_used | eval gb=round(bytes_used/1024/1024/1024,2) '
+        '| table gb'
+    )
+    quota_data = splunk_rest("/services/licenser/pools", {"output_mode": "json"})
+    quota_gb = 0
+    for entry in quota_data.get("entry", []):
+        qb = safe_float(entry.get("content", {}).get("effective_quota", 0))
+        if qb > 0:
+            quota_gb = round(qb / 1024 / 1024 / 1024, 1)
+            break
+
+    usage_gb = 0
+    if usage_results:
+        usage_gb = safe_float(usage_results[0].get("gb", 0))
+
+    if quota_gb > 0:
+        pct = round(usage_gb / quota_gb * 100, 1) if quota_gb else 0
+        record_finding("licensing", "Licensing", "daily_usage",
+                       "Daily Usage",
+                       "{} GB/day ({} GB quota, {}%)".format(usage_gb, quota_gb, pct),
+                       "OK" if pct < 80 else ("WARNING" if pct < 95 else "CRITICAL"),
+                       "" if pct < 80 else "License usage at {}% of quota".format(pct),
+                       100 if pct < 80 else (40 if pct < 95 else 10),
+                       fix_prompt="" if pct < 80 else
+                       "License usage is at {}% of the {} GB quota. Reduce ingestion volume "
+                       "or increase license capacity. Check top sources: "
+                       "index=_internal source=*license_usage.log type=Usage | stats sum(b) by s | sort -sum(b)".format(pct, quota_gb))
+        scores.append(100 if pct < 80 else (40 if pct < 95 else 10))
+
+    # 2.3 Violations
     vio_results = splunk_search_oneshot(
         'search index=_internal source=*license_usage.log '
         'type=RolloverSummary earliest=-30d '
@@ -404,16 +513,23 @@ def audit_licensing():
     )
     vio_count = 0
     if vio_results:
-        vio_count = int(vio_results[0].get("violations", 0))
+        vio_count = safe_int(vio_results[0].get("violations", 0))
     if vio_count > 5:
         record_finding("licensing", "Licensing", "violations",
                        "License Violations", "{} in 30d".format(vio_count),
-                       "CRITICAL", "License block imminent", 10)
+                       "CRITICAL", "License block imminent at 5 violations in 30d window", 10,
+                       fix_prompt="There are {} license violations in the last 30 days. "
+                       "Splunk will block search at 5 violations. Immediately reduce "
+                       "ingestion or increase license quota. Find top sources: "
+                       "index=_internal source=*license_usage.log type=Usage | stats sum(b) by s | sort -sum(b)".format(vio_count))
         scores.append(10)
     elif vio_count > 0:
         record_finding("licensing", "Licensing", "violations",
                        "License Violations", "{} in 30d".format(vio_count),
-                       "WARNING", "", 50)
+                       "WARNING", "Approaching license block threshold", 50,
+                       fix_prompt="{} license violation(s) detected. Review daily ingestion "
+                       "volumes and identify spike sources. Consider adjusting "
+                       "inputs.conf for noisy sources.".format(vio_count))
         scores.append(50)
     else:
         record_finding("licensing", "Licensing", "violations",
@@ -464,29 +580,51 @@ def audit_apps():
 
     # 4.1 App count
     apps_data = splunk_rest("/services/apps/local",
-                            {"output_mode": "json", "count": 0})
-    app_count = len(apps_data.get("entry", []))
+                            {"output_mode": "json", "count": "0"})
+    app_entries = apps_data.get("entry", [])
+    app_count = len(app_entries)
+
+    disabled_apps = [e.get("name", "?") for e in app_entries
+                     if e.get("content", {}).get("disabled", False)]
+
     if app_count > 50:
         record_finding("apps", "Apps", "app_count", "App Count",
                        "{} apps installed".format(app_count),
-                       "INFO", "High app count — review for unused", 70)
+                       "INFO", "High app count — review for unused", 70,
+                       fix_prompt="{} apps installed. Review and remove unused apps to reduce "
+                       "config complexity. List all: $SPLUNK_HOME/bin/splunk display app".format(app_count))
         scores.append(70)
     else:
         record_finding("apps", "Apps", "app_count", "App Count",
                        "{} apps installed".format(app_count), "OK", "", 100)
         scores.append(100)
 
-    # 4.2 btool check
+    # 4.2 Disabled apps
+    if disabled_apps:
+        record_finding("apps", "Apps", "disabled_apps", "Disabled Apps",
+                       "{} disabled".format(len(disabled_apps)),
+                       "INFO", ", ".join(disabled_apps[:5]),
+                       80 if len(disabled_apps) < 5 else 60,
+                       fix_prompt="Disabled apps found: {}. Consider removing apps that "
+                       "are permanently disabled to reduce conf load.".format(", ".join(disabled_apps[:10])))
+        scores.append(80 if len(disabled_apps) < 5 else 60)
+
+    # 4.3 btool check
     btool_raw = run_cmd(
         "{}/bin/splunk btool check --debug 2>&1 | "
-        "grep -v 'cyber_security\\|compliance_essentials\\|Splunk_AI_Assistant' | "
+        "grep -v -i 'cyber_security\\|compliance_essentials\\|Splunk_AI_Assistant\\|splunk_assist' | "
         "head -20".format(SPLUNK_HOME)
     )
-    btool_count = len([l for l in btool_raw.splitlines() if l.strip()])
+    btool_lines = [l for l in btool_raw.splitlines() if l.strip()]
+    btool_count = len(btool_lines)
     if btool_count > 0:
+        sample = btool_lines[0][:120] if btool_lines else ""
         record_finding("apps", "Apps", "btool_check", "Config Validation",
                        "{} warnings".format(btool_count), "WARNING",
-                       "btool check found config issues", 50)
+                       "btool check found config issues", 50,
+                       fix_prompt="btool check found {} config warnings. First issue: '{}'. "
+                       "Run: $SPLUNK_HOME/bin/splunk btool check --debug "
+                       "to see all issues and fix invalid stanzas or typos.".format(btool_count, sample))
         scores.append(50)
     else:
         record_finding("apps", "Apps", "btool_check", "Config Validation",
@@ -505,29 +643,70 @@ def audit_apps():
 def audit_usage():
     scores = []
 
+    # 5.1 Scheduled search count
     ss_results = splunk_search_oneshot(
-        '| rest /services/saved/searches '
+        '| rest /services/saved/searches splunk_server=local '
         '| search is_scheduled=1 disabled=0 '
         '| stats count as total | table total'
     )
     ss_count = 0
     if ss_results:
-        ss_count = int(ss_results[0].get("total", 0))
+        ss_count = safe_int(ss_results[0].get("total", 0))
 
     if ss_count > 100:
         record_finding("usage", "Usage", "saved_searches",
                        "Scheduled Searches", "{} enabled".format(ss_count),
-                       "WARNING", "High count — scheduling pressure", 40)
+                       "WARNING", "High count — scheduling pressure", 40,
+                       fix_prompt="{} scheduled searches are active. Review and disable unused ones. "
+                       "Check for overlapping schedules: "
+                       "| rest /services/saved/searches | search is_scheduled=1 disabled=0 "
+                       "| table title cron_schedule dispatch.earliest_time".format(ss_count))
         scores.append(40)
     elif ss_count > 50:
         record_finding("usage", "Usage", "saved_searches",
                        "Scheduled Searches", "{} enabled".format(ss_count),
-                       "INFO", "", 65)
+                       "INFO", "Moderate count", 65)
         scores.append(65)
     else:
         record_finding("usage", "Usage", "saved_searches",
                        "Scheduled Searches", "{} enabled".format(ss_count),
                        "OK", "", 100)
+        scores.append(100)
+
+    # 5.2 Skipped searches (last 24h)
+    skip_results = splunk_search_oneshot(
+        'search index=_internal sourcetype=scheduler status=skipped earliest=-24h '
+        '| stats dc(savedsearch_name) as skipped_names count as skipped_count '
+        '| table skipped_names skipped_count'
+    )
+    skip_count = 0
+    skip_names = 0
+    if skip_results:
+        skip_count = safe_int(skip_results[0].get("skipped_count", 0))
+        skip_names = safe_int(skip_results[0].get("skipped_names", 0))
+
+    if skip_count > 50:
+        record_finding("usage", "Usage", "skipped_searches",
+                       "Skipped Searches",
+                       "{} skips across {} searches in 24h".format(skip_count, skip_names),
+                       "WARNING", "Scheduler overloaded — searches being dropped", 35,
+                       fix_prompt="{} scheduled search executions were skipped in 24h across {} "
+                       "unique searches. This means the scheduler cannot keep up. Reduce "
+                       "scheduled search count, stagger cron schedules, or increase "
+                       "max_searches_per_cpu. Check: index=_internal sourcetype=scheduler "
+                       "status=skipped | top savedsearch_name".format(skip_count, skip_names))
+        scores.append(35)
+    elif skip_count > 0:
+        record_finding("usage", "Usage", "skipped_searches",
+                       "Skipped Searches",
+                       "{} skips in 24h".format(skip_count),
+                       "INFO", "{} unique searches affected".format(skip_names), 70,
+                       fix_prompt="{} scheduler skips detected. Stagger cron schedules "
+                       "to reduce peak load.".format(skip_count))
+        scores.append(70)
+    else:
+        record_finding("usage", "Usage", "skipped_searches",
+                       "Skipped Searches", "0 skips in 24h", "OK", "", 100)
         scores.append(100)
 
     score = calc_domain_score(scores)
@@ -548,22 +727,27 @@ def audit_search_performance():
         '| where total_run_time>600 '
         '| stats count as long_count | table long_count'
     )
-    long_count = 0
-    if long_results:
-        long_count = int(long_results[0].get("long_count", 0))
+    long_count = safe_int(long_results[0].get("long_count", 0)) if long_results else 0
 
     if long_count > 10:
         record_finding("search", "Search Perf", "long_running",
                        "Long Running Searches",
-                       "{} searches >600s".format(long_count),
-                       "CRITICAL", "Excessive long-running searches", 15)
+                       "{} searches >600s in 7d".format(long_count),
+                       "CRITICAL", "Excessive long-running searches", 15,
+                       fix_prompt="{} searches ran longer than 10 minutes in the past week. "
+                       "Find and optimize them: index=_audit action=search info=completed "
+                       "| where total_run_time>600 | stats count by savedsearch_name user "
+                       "| sort -count".format(long_count))
         scores.append(15)
     elif long_count > 0:
         record_finding("search", "Search Perf", "long_running",
                        "Long Running Searches",
-                       "{} searches >600s".format(long_count),
-                       "WARNING", "", 40)
-        scores.append(40)
+                       "{} searches >600s in 7d".format(long_count),
+                       "WARNING", "Some long-running searches detected", 50,
+                       fix_prompt="{} searches exceeded 10 minutes. Review with: "
+                       "index=_audit action=search info=completed | where total_run_time>600 "
+                       "| table user savedsearch_name total_run_time".format(long_count))
+        scores.append(50)
     else:
         record_finding("search", "Search Perf", "long_running",
                        "Long Running Searches", "None >600s", "OK", "", 100)
@@ -571,62 +755,64 @@ def audit_search_performance():
 
     # 6.2 Real-time searches
     rt_results = splunk_search_oneshot(
-        '| rest /services/search/jobs '
+        '| rest /services/search/jobs splunk_server=local '
         '| search isRealTimeSearch=1 '
         '| stats count as rt_count | table rt_count'
     )
-    rt_count = 0
-    if rt_results:
-        rt_count = int(rt_results[0].get("rt_count", 0))
+    rt_count = safe_int(rt_results[0].get("rt_count", 0)) if rt_results else 0
 
     if rt_count > 10:
         record_finding("search", "Search Perf", "realtime",
-                       "Real-Time Searches",
-                       "{} active".format(rt_count),
-                       "CRITICAL", "Excessive RT searches", 15)
+                       "Real-Time Searches", "{} active".format(rt_count),
+                       "CRITICAL", "Excessive RT searches — high resource consumption", 15,
+                       fix_prompt="{} real-time searches running. Each holds resources continuously. "
+                       "Convert to scheduled searches where possible.".format(rt_count))
         scores.append(15)
     elif rt_count > 3:
         record_finding("search", "Search Perf", "realtime",
-                       "Real-Time Searches",
-                       "{} active".format(rt_count), "WARNING", "", 45)
+                       "Real-Time Searches", "{} active".format(rt_count),
+                       "WARNING", "Multiple RT searches active", 45,
+                       fix_prompt="{} real-time searches active. Consider converting to "
+                       "scheduled searches with short intervals.".format(rt_count))
         scores.append(45)
     elif rt_count > 0:
         record_finding("search", "Search Perf", "realtime",
-                       "Real-Time Searches",
-                       "{} active".format(rt_count), "INFO", "", 70)
+                       "Real-Time Searches", "{} active".format(rt_count),
+                       "INFO", "", 70)
         scores.append(70)
     else:
         record_finding("search", "Search Perf", "realtime",
                        "Real-Time Searches", "0 active", "OK", "", 100)
         scores.append(100)
 
-    # 6.3 Search concurrency
+    # 6.3 Search concurrency (only running jobs, not finished artifacts)
     jobs_results = splunk_search_oneshot(
-        '| rest /services/search/jobs '
+        '| rest /services/search/jobs splunk_server=local '
+        '| search dispatchState=RUNNING OR dispatchState=QUEUED OR dispatchState=PARSING '
         '| stats count as active | table active'
     )
-    active_count = 0
-    if jobs_results:
-        active_count = int(jobs_results[0].get("active", 0))
+    active_count = safe_int(jobs_results[0].get("active", 0)) if jobs_results else 0
 
     cores_str = run_cmd("nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4")
-    try:
-        cores = int(cores_str)
-    except ValueError:
-        cores = 4
+    cores = safe_int(cores_str, 4)
     max_searches = cores * 2 + 6
 
     if active_count > max_searches * 90 // 100:
         record_finding("search", "Search Perf", "concurrency",
                        "Search Concurrency",
-                       "Peak {} of {} limit".format(active_count, max_searches),
-                       "CRITICAL", ">90% of max", 15)
+                       "{} of {} limit ({}%)".format(active_count, max_searches, active_count*100//max_searches),
+                       "CRITICAL", ">90% of concurrent search limit", 15,
+                       fix_prompt="Search concurrency at {}% of max ({}). Searches will queue. "
+                       "Reduce concurrent load or increase max_searches_per_cpu in limits.conf.".format(
+                           active_count*100//max_searches, max_searches))
         scores.append(15)
     elif active_count > max_searches * 70 // 100:
         record_finding("search", "Search Perf", "concurrency",
                        "Search Concurrency",
-                       "Peak {} of {} limit".format(active_count, max_searches),
-                       "WARNING", ">70% of max — risk of queuing", 40)
+                       "{} of {} limit ({}%)".format(active_count, max_searches, active_count*100//max_searches),
+                       "WARNING", ">70% of max — risk of queuing", 40,
+                       fix_prompt="Search concurrency at {}%. Stagger scheduled searches "
+                       "and review for unnecessary concurrent load.".format(active_count*100//max_searches))
         scores.append(40)
     else:
         record_finding("search", "Search Perf", "concurrency",
@@ -647,28 +833,38 @@ def audit_search_performance():
 def audit_dashboards():
     scores = []
 
-    dash_results = splunk_search_oneshot(
-        '| rest /servicesNS/-/-/data/ui/views '
-        '| search isDashboard=1 '
-        '| eval type=if(like(eai:data, "%version=\\"2\\"%"), '
-        '"studio_v2", "classic_xml") '
-        '| stats count by type | table type count'
-    )
+    dash_data = splunk_rest("/servicesNS/-/-/data/ui/views",
+                            {"output_mode": "json", "count": "0",
+                             "search": "isDashboard=1 AND isVisible=1"})
+    entries = dash_data.get("entry", [])
+
     studio = 0
     classic = 0
-    for row in dash_results:
-        t = row.get("type", "")
-        c = int(row.get("count", 0))
-        if "studio" in t:
-            studio = c
-        elif "classic" in t:
-            classic = c
-    total = studio + classic
+    for entry in entries:
+        content = entry.get("content", {})
+        eai_data = content.get("eai:data", "")
+        if 'version="2"' in eai_data or "version='2'" in eai_data:
+            studio += 1
+        else:
+            classic += 1
 
-    record_finding("dashboards", "Dashboards", "studio_ratio",
-                   "Studio v2 Ratio",
-                   "{}/{} Studio v2".format(studio, total), "OK", "", 100)
-    scores.append(100)
+    total = studio + classic
+    if total > 0:
+        ratio = round(studio / total * 100)
+        record_finding("dashboards", "Dashboards", "studio_ratio",
+                       "Studio v2 Ratio",
+                       "{}/{} Studio v2 ({}%)".format(studio, total, ratio),
+                       "OK" if ratio > 50 else "INFO",
+                       "" if ratio > 50 else "Most dashboards are Classic XML — consider migrating",
+                       100 if ratio > 50 else 70,
+                       fix_prompt="" if ratio > 50 else
+                       "{} of {} dashboards are Classic XML. Consider migrating to "
+                       "Dashboard Studio v2 for better performance and features.".format(classic, total))
+        scores.append(100 if ratio > 50 else 70)
+    else:
+        record_finding("dashboards", "Dashboards", "studio_ratio",
+                       "Studio v2 Ratio", "No dashboards found", "OK", "", 100)
+        scores.append(100)
 
     score = calc_domain_score(scores)
     record_domain_score("dashboards", "Dashboards", score, 10)
@@ -683,38 +879,66 @@ def audit_indexes():
     scores = []
 
     idx_data = splunk_rest("/services/data/indexes",
-                           {"output_mode": "json", "count": 0})
+                           {"output_mode": "json", "count": "0"})
     entries = idx_data.get("entry", [])
 
     active_count = 0
-    total_mb = 0
+    total_mb = 0.0
     dead_count = 0
+    dead_names = []
+    no_retention = []
+
     for entry in entries:
         c = entry.get("content", {})
-        evts = int(c.get("totalEventCount", 0))
+        name = entry.get("name", "")
+        evts = safe_int(c.get("totalEventCount", 0))
         disabled = c.get("disabled", False)
-        size = float(c.get("currentDBSizeMB", 0))
+        size = safe_float(c.get("currentDBSizeMB", 0))
+        frozen = safe_int(c.get("frozenTimePeriodInSecs", 0))
+
         if evts > 0:
             active_count += 1
             total_mb += size
-        elif not disabled:
+        elif not disabled and not name.startswith("_"):
             dead_count += 1
+            dead_names.append(name)
+
+        if frozen == 0 and not disabled and not name.startswith("_"):
+            no_retention.append(name)
 
     total_gb = round(total_mb / 1024.0, 1)
 
     record_finding("indexes", "Indexes", "total_size", "Total Index Size",
-                   "{} GB across {} indexes".format(total_gb, active_count),
+                   "{} GB across {} active indexes".format(total_gb, active_count),
                    "OK", "", 100)
     scores.append(100)
 
     if dead_count > 0:
         record_finding("indexes", "Indexes", "dead_indexes", "Dead Indexes",
-                       "{} empty indexes".format(dead_count),
-                       "INFO", "Candidates for removal", 70)
-        scores.append(70)
+                       "{} empty non-internal indexes".format(dead_count),
+                       "INFO", ", ".join(dead_names[:8]),
+                       80 if dead_count < 5 else 60,
+                       fix_prompt="Empty indexes found: {}. These consume config overhead. "
+                       "Remove if unused or verify data inputs are configured correctly.".format(
+                           ", ".join(dead_names[:10])))
+        scores.append(80 if dead_count < 5 else 60)
     else:
         record_finding("indexes", "Indexes", "dead_indexes", "Dead Indexes",
-                       "0 dead indexes", "OK", "", 100)
+                       "0 empty indexes", "OK", "", 100)
+        scores.append(100)
+
+    if no_retention:
+        record_finding("indexes", "Indexes", "retention", "Retention Policy",
+                       "{} indexes without explicit retention".format(len(no_retention)),
+                       "INFO", ", ".join(no_retention[:8]),
+                       70,
+                       fix_prompt="Indexes without frozenTimePeriodInSecs: {}. "
+                       "Set retention in indexes.conf to control disk growth.".format(
+                           ", ".join(no_retention[:10])))
+        scores.append(70)
+    else:
+        record_finding("indexes", "Indexes", "retention", "Retention Policy",
+                       "All indexes have retention set", "OK", "", 100)
         scores.append(100)
 
     score = calc_domain_score(scores)
@@ -755,12 +979,10 @@ def main():
     for ds in DOMAIN_SCORES:
         overall_score += int(ds.get("weighted_score", 0))
 
-    hostname = run_cmd("hostname").split(".")[0] or "splunk"
-
     summary = {
         "audit_time": NOW,
         "audit_id": AUDIT_ID,
-        "host": hostname,
+        "host": _hostname(),
         "splunk_version": SPLUNK_VER,
         "event_type": "summary",
         "overall_score": overall_score,
