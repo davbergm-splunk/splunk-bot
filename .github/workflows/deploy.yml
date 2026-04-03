@@ -19,30 +19,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create .env from secrets
+      - name: Deploy app via rsync
+        env:
+          SPLUNK_HOME: ${{ secrets.SPLUNK_HOME }}
         run: |
-          cat > .env <<ENVEOF
-          SSH_HOST=${{ secrets.AM06_HOST }}
-          SSH_USER=${{ secrets.SSH_USER }}
-          SSH_KEY=${{ secrets.SSH_KEY_PATH }}
-          SPLUNK_HOME_REMOTE=${{ secrets.SPLUNK_HOME }}
-          SPLUNK_USER=${{ secrets.SPLUNK_USER }}
-          SPLUNK_PASS=${{ secrets.SPLUNK_PASS }}
-          ENVEOF
-          sed -i 's/^          //' .env
+          rsync -avz --delete \
+            --exclude='.*' \
+            splunk_app/splunk_bot/ \
+            "$SPLUNK_HOME/etc/apps/splunk_bot/"
 
-      - name: Source env and deploy
-        run: |
-          set -a; source .env; set +a
-          ./deploy/deploy_am06.sh
-
-      - name: Cleanup
-        if: always()
-        run: rm -f .env
+      - name: Restart Splunk
+        if: inputs.restart_splunk
+        env:
+          SPLUNK_BIN: ${{ secrets.SPLUNK_BIN }}
+        run: $SPLUNK_BIN restart || true
 
       - name: Deploy summary
         if: always()
         run: |
           echo "## splunk-bot Deploy" >> "$GITHUB_STEP_SUMMARY"
           echo "Deployed splunk_bot app to AM06" >> "$GITHUB_STEP_SUMMARY"
-          echo "Dashboard: http://${{ secrets.AM06_HOST }}:8000/app/splunk_bot/bot_audit" >> "$GITHUB_STEP_SUMMARY"
