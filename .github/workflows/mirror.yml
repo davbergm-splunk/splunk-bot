@@ -1,0 +1,21 @@
+name: Mirror to DaveBergman
+
+on:
+  push:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to mirror
+        run: |
+          git remote add mirror https://x-access-token:${{ secrets.MIRROR_PAT }}@github.com/DaveBergman/${{ github.event.repository.name }}.git
+          git push mirror main --force
