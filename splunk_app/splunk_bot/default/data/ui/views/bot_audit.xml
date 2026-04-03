@@ -94,6 +94,13 @@
         "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" earliest=-90d latest=now | sort -_time | head 5 | eval log=\"[\".audit_time.\"] \".event_type.\" | \".if(event_type=\"summary\", \"score=\".overall_score.\" status=\".overall_status, domain_label.\" > \".check_label.\" = \".severity) | table log | rename log as \"Terminal Output\"",
         "queryParameters": {"earliest":"-90d","latest":"now"}
       }
+    },
+    "ds_last_audit": {
+      "type": "ds.search",
+      "options": {
+        "query": "index=splunk_bot sourcetype=\"splunkbot:audit:finding\" event_type=summary earliest=-90d latest=now | sort -_time | head 1 | eval last_run=audit_time.\" | score=\".overall_score.\" | \".overall_status | table last_run",
+        "queryParameters": {"earliest":"-90d","latest":"now"}
+      }
     }
   },
   "defaults": {},
@@ -109,7 +116,7 @@
     "viz_rerun": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "> `./bin/splunk-bot-audit.sh`",
+        "markdown": "### [> RUN_AUDIT_](/app/splunk_bot/search?q=%7C%20runaudit&earliest=-1m&latest=now)",
         "fontColor": "#00ff41"
       }
     },
@@ -235,13 +242,31 @@
       "dataSources": {"primary": "ds_audit_log"},
       "options": {"backgroundColor":"transparent","count":5},
       "containerOptions": {"title": {"color": "#00ff41"}}
+    },
+    "card_run_audit": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+    },
+    "viz_run_info": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "### > [RUN_AUDIT_NOW](/app/splunk_bot/search?q=%7C%20runaudit&earliest=-1m&latest=now)\n\n_Runs the 8-domain platform audit inside Splunk and writes results to the splunk_bot index. Refresh this dashboard after completion._",
+        "fontColor": "#00ff41"
+      }
+    },
+    "viz_last_audit": {
+      "type": "splunk.singlevalue",
+      "title": "LAST_AUDIT",
+      "dataSources": {"primary": "ds_last_audit"},
+      "options": {"majorFontSize":20,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#00ff41"}}
     }
   },
   "layout": {
     "type": "absolute",
     "options": {
       "width": 1440,
-      "height": 1900,
+      "height": 2100,
       "display": "auto-scale",
       "backgroundColor": "transparent",
       "backgroundImage": {"sizeType":"contain","x":0,"y":0,"src":"/static/app/splunk_bot/terminal_bg.svg"}
@@ -274,7 +299,11 @@
       {"item":"viz_ok_findings","type":"block","position":{"x":738,"y":904,"w":678,"h":300}},
 
       {"item":"card_log","type":"block","position":{"x":16,"y":1218,"w":1408,"h":200}},
-      {"item":"viz_audit_log","type":"block","position":{"x":24,"y":1218,"w":1392,"h":200}}
+      {"item":"viz_audit_log","type":"block","position":{"x":24,"y":1218,"w":1392,"h":200}},
+
+      {"item":"card_run_audit","type":"block","position":{"x":16,"y":1432,"w":1408,"h":140}},
+      {"item":"viz_run_info","type":"block","position":{"x":24,"y":1432,"w":900,"h":140}},
+      {"item":"viz_last_audit","type":"block","position":{"x":940,"y":1432,"w":470,"h":140}}
     ]
   }
 }

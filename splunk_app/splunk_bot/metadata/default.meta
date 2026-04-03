@@ -17,3 +17,11 @@ owner = admin
 [inputs]
 export = system
 owner = admin
+
+[commands]
+export = system
+owner = admin
+
+[savedsearches]
+export = system
+owner = admin
