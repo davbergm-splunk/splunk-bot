@@ -1,0 +1,19 @@
+[]
+export = system
+owner = admin
+
+[views]
+export = system
+owner = admin
+
+[indexes]
+export = system
+owner = admin
+
+[props]
+export = system
+owner = admin
+
+[inputs]
+export = system
+owner = admin

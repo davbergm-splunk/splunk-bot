@@ -1,0 +1,6 @@
+<nav color="#0a0a0a">
+  <view name="bot_audit" default="true" />
+  <collection label="Operations">
+    <a href="/app/splunk_bot/search?q=%7C+tstats+count+latest(_time)+as+last_event+WHERE+index%3Dsplunk_bot+BY+sourcetype">Data Check</a>
+  </collection>
+</nav>

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="2000" viewBox="0 0 1440 2000">
+  <defs>
+    <radialGradient id="crt_glow" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#0a1a0a" />
+      <stop offset="60%" stop-color="#050f05" />
+      <stop offset="100%" stop-color="#020502" />
+    </radialGradient>
+    <pattern id="scanlines" width="1" height="4" patternUnits="userSpaceOnUse">
+      <rect width="1" height="2" fill="rgba(0,255,65,0.03)" />
+      <rect y="2" width="1" height="2" fill="transparent" />
+    </pattern>
+    <filter id="phosphor_glow">
+      <feGaussianBlur stdDeviation="1.5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <linearGradient id="bezel_top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a1a" />
+      <stop offset="100%" stop-color="#0a0a0a" />
+    </linearGradient>
+  </defs>
+
+  <!-- CRT background -->
+  <rect width="1440" height="2000" fill="url(#crt_glow)" />
+
+  <!-- Scanline overlay -->
+  <rect width="1440" height="2000" fill="url(#scanlines)" opacity="0.6" />
+
+  <!-- Bezel frame -->
+  <rect x="4" y="4" width="1432" height="1992" rx="12" ry="12"
+        fill="none" stroke="#1a3a1a" stroke-width="2" opacity="0.5" />
+  <rect x="8" y="8" width="1424" height="1984" rx="8" ry="8"
+        fill="none" stroke="#0d2a0d" stroke-width="1" opacity="0.3" />
+
+  <!-- Corner vignette shadows -->
+  <rect width="1440" height="2000" fill="url(#crt_glow)" opacity="0.4" />
+
+  <!-- Terminal header bar -->
+  <rect x="12" y="12" width="1416" height="36" rx="6" fill="#0d1f0d" opacity="0.8" />
+  <circle cx="30" cy="30" r="5" fill="#ff3b30" opacity="0.7" />
+  <circle cx="48" cy="30" r="5" fill="#ffcc00" opacity="0.7" />
+  <circle cx="66" cy="30" r="5" fill="#00ff41" opacity="0.7" />
+  <text x="720" y="35" font-family="'Courier New', monospace" font-size="13"
+        fill="#00ff41" text-anchor="middle" opacity="0.6" filter="url(#phosphor_glow)">
+    SPLUNK-BOT v1.0.0  Platform Audit Terminal
+  </text>
+
+  <!-- Grid lines (subtle) -->
+  <g stroke="#00ff41" stroke-width="0.3" opacity="0.06">
+    <line x1="0" y1="200" x2="1440" y2="200" />
+    <line x1="0" y1="400" x2="1440" y2="400" />
+    <line x1="0" y1="600" x2="1440" y2="600" />
+    <line x1="0" y1="800" x2="1440" y2="800" />
+    <line x1="0" y1="1000" x2="1440" y2="1000" />
+    <line x1="0" y1="1200" x2="1440" y2="1200" />
+    <line x1="0" y1="1400" x2="1440" y2="1400" />
+    <line x1="0" y1="1600" x2="1440" y2="1600" />
+    <line x1="0" y1="1800" x2="1440" y2="1800" />
+    <line x1="360" y1="0" x2="360" y2="2000" />
+    <line x1="720" y1="0" x2="720" y2="2000" />
+    <line x1="1080" y1="0" x2="1080" y2="2000" />
+  </g>
+
+  <!-- Bottom status bar -->
+  <rect x="12" y="1960" width="1416" height="28" rx="6" fill="#0d1f0d" opacity="0.6" />
+  <text x="24" y="1978" font-family="'Courier New', monospace" font-size="11"
+        fill="#00ff41" opacity="0.4">
+    [TERMINAL] Connected to AM06  192.168.1.114:8000
+  </text>
+  <text x="1416" y="1978" font-family="'Courier New', monospace" font-size="11"
+        fill="#00ff41" opacity="0.4" text-anchor="end">
+    Splunk Enterprise 10.2.1
+  </text>
+</svg>

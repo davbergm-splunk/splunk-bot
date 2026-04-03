@@ -1,0 +1,9 @@
+.env
+*.pyc
+__pycache__/
+.DS_Store
+*.tar.gz
+dist/
+node_modules/
+local/
+reports/
