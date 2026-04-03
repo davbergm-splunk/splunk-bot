@@ -42,6 +42,8 @@ Each finding is scored 0-100 and classified by severity:
 
 ```
 splunk-bot/
+├── bin/
+│   └── splunk-bot-audit.sh      # Standalone audit runner (no Cursor needed)
 ├── splunk_app/splunk_bot/       # The Splunk app
 │   ├── default/
 │   │   ├── app.conf             # App identity
@@ -59,6 +61,7 @@ splunk-bot/
 ├── deploy/
 │   ├── deploy_am06.sh           # Full deployment script
 │   └── seed_sample_data.sh      # Seed test data for demo
+├── reports/                     # Generated markdown reports (gitignored)
 ├── .env.example                 # Credential template
 ├── .gitignore
 ├── LICENSE                      # MIT
@@ -111,7 +114,7 @@ The dashboard uses a retro CRT terminal aesthetic:
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/DaveBergman/splunk-bot.git
+git clone https://github.com/davbergm-splunk/splunk-bot.git
 cd splunk-bot
 
 # 2. Set up credentials
@@ -226,13 +229,84 @@ After `splunk restart`, the web server and management port may take 30-60 second
 
 ## Running an Audit
 
-SPLUNK-BOT is designed to work with the `splunk-performance-audit` AI skill. To run an audit:
+### Option 1: Command Line (no Cursor needed)
+
+Run the standalone audit script directly from your terminal:
+
+```bash
+# Source credentials first
+source .env
+
+# Run the full audit
+./bin/splunk-bot-audit.sh
+
+# Or pass credentials inline
+./bin/splunk-bot-audit.sh --host 192.168.1.114 --splunk-pass changeme
+
+# Dry run — see what commands would execute without running them
+./bin/splunk-bot-audit.sh --dry-run
+```
+
+The script will:
+1. SSH to your Splunk host
+2. Run checks across all 8 audit domains
+3. Score each finding and compute a weighted overall score
+4. Write JSON events to the `splunk_bot` index (for the dashboard)
+5. Save a markdown report to `reports/SPLUNK_BOT_AUDIT_<date>.md`
+6. Print a colour-coded summary to your terminal
+
+```
+┌──────────────────────────────────────────────────┐
+│  > SPLUNK-BOT v1.0.0                             │
+│  Platform Audit Terminal                         │
+│                                                  │
+│  Host: 192.168.1.114                             │
+│  Date: 2026-04-03                                │
+└──────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════
+  DOMAIN 1: SYSTEM HEALTH
+═══════════════════════════════════════════════════
+  [OK] Splunk Version: 10.2.1
+  [WARNING] CPU/RAM: 4 cores, 16GB total, 3GB available
+  [WARNING] Disk Space: 78% used
+  [CRITICAL] Dispatch Dir: 12.3 GB
+  [OK] KV Store: Ready
+  ...
+
+═══════════════════════════════════════════════════
+  AUDIT COMPLETE
+═══════════════════════════════════════════════════
+
+  Health Score:  63 / 100
+  Status:        WARNING
+  Findings:      35 total
+    CRITICAL: 2  WARNING: 5  INFO: 8  OK: 20
+```
+
+#### CLI Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--host HOST` | Splunk host IP/hostname | `$SSH_HOST` or `192.168.1.114` |
+| `--user USER` | SSH user | `$SSH_USER` or `dave` |
+| `--key PATH` | SSH key path | `$SSH_KEY` or `~/.ssh/id_ed25519` |
+| `--splunk-user USER` | Splunk admin user | `$SPLUNK_USER` or `admin` |
+| `--splunk-pass PASS` | Splunk admin password | `$SPLUNK_PASS` |
+| `--dry-run` | Show commands without executing | off |
+| `--help` | Show usage | — |
+
+### Option 2: Cursor IDE
+
+Use the `splunk-performance-audit` AI skill:
 
 1. Open Cursor IDE
 2. Say: "Run the splunk-performance-audit skill on AM06 and update the splunk-bot audit dashboard"
 3. The skill will SSH to your Splunk host, run all checks, and write findings to the `splunk_bot` index
 
-Or click the **> RERUN AUDIT_** link on the dashboard itself.
+### Option 3: Dashboard Rerun Button
+
+Click the **> RERUN AUDIT_** link on the dashboard itself (opens Cursor with a pre-filled prompt).
 
 ## Contributing
 
