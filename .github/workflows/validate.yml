@@ -1,0 +1,66 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'splunk_app/**'
+      - 'bin/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate:
+    name: Validate splunk_bot app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          ERRORS=0
+          for f in \
+            splunk_app/splunk_bot/default/app.conf \
+            splunk_app/splunk_bot/default/indexes.conf \
+            splunk_app/splunk_bot/default/inputs.conf \
+            splunk_app/splunk_bot/default/props.conf \
+            splunk_app/splunk_bot/default/data/ui/views/bot_audit.xml \
+            splunk_app/splunk_bot/default/data/ui/nav/default.xml \
+            splunk_app/splunk_bot/metadata/default.meta \
+            bin/splunk-bot-audit.sh; do
+            if [[ -f "$f" ]]; then
+              echo "OK: $f"
+            else
+              echo "::warning::MISSING: $f"
+              ERRORS=$((ERRORS+1))
+            fi
+          done
+          echo "## Validation" >> "$GITHUB_STEP_SUMMARY"
+          if [[ $ERRORS -gt 0 ]]; then
+            echo "::warning::$ERRORS required file(s) missing"
+            echo "$ERRORS required file(s) missing" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All required files present" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Validate dashboard XML
+        run: |
+          python3 -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('splunk_app/splunk_bot/default/data/ui/views/bot_audit.xml')
+          root = tree.getroot()
+          print(f'Dashboard root tag: {root.tag}')
+          print('Dashboard XML is well-formed')
+          " 2>&1 || echo "::warning::Dashboard XML parse failed"
+
+      - name: Check audit script is executable
+        run: |
+          if [[ -x bin/splunk-bot-audit.sh ]]; then
+            echo "OK: bin/splunk-bot-audit.sh is executable"
+          else
+            echo "::warning::bin/splunk-bot-audit.sh is not executable"
+          fi

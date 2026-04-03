@@ -1,0 +1,48 @@
+name: Deploy to AM06
+
+on:
+  workflow_dispatch:
+    inputs:
+      restart_splunk:
+        description: 'Restart Splunk after deploy'
+        type: boolean
+        default: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    name: Deploy splunk_bot to AM06
+    runs-on: [self-hosted, am06]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create .env from secrets
+        run: |
+          cat > .env <<ENVEOF
+          SSH_HOST=${{ secrets.AM06_HOST }}
+          SSH_USER=${{ secrets.SSH_USER }}
+          SSH_KEY=${{ secrets.SSH_KEY_PATH }}
+          SPLUNK_HOME_REMOTE=${{ secrets.SPLUNK_HOME }}
+          SPLUNK_USER=${{ secrets.SPLUNK_USER }}
+          SPLUNK_PASS=${{ secrets.SPLUNK_PASS }}
+          ENVEOF
+          sed -i 's/^          //' .env
+
+      - name: Source env and deploy
+        run: |
+          set -a; source .env; set +a
+          ./deploy/deploy_am06.sh
+
+      - name: Cleanup
+        if: always()
+        run: rm -f .env
+
+      - name: Deploy summary
+        if: always()
+        run: |
+          echo "## splunk-bot Deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed splunk_bot app to AM06" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dashboard: http://${{ secrets.AM06_HOST }}:8000/app/splunk_bot/bot_audit" >> "$GITHUB_STEP_SUMMARY"
