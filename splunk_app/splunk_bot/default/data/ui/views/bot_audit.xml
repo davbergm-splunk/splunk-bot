@@ -1,6 +1,6 @@
 <dashboard version="2" theme="dark">
   <label>SPLUNK-BOT</label>
-  <description>Retro terminal platform audit — health scoring, domain analysis, severity-rated findings</description>
+  <description>Platform health audit — 8 domains, weighted scoring, severity analysis</description>
   <definition><![CDATA[
 {
   "dataSources": {
@@ -76,10 +76,19 @@
         "refreshType": "delay"
       }
     },
+    "ds_all_findings": {
+      "type": "ds.search",
+      "options": {
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding | dedup check | eval icon=case(severity=\"CRITICAL\",\"▸ CRIT\", severity=\"WARNING\",\"▸ WARN\", severity=\"INFO\",\"▸ INFO\", severity=\"OK\",\"▸ PASS\", 1=1, severity) | table icon domain_label check_label result severity score | sort severity score | rename icon as \" \", domain_label as Domain, check_label as Check, result as Result, severity as Severity, score as Score",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
+      }
+    },
     "ds_critical_findings": {
       "type": "ds.search",
       "options": {
-        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=CRITICAL | dedup check | eval Severity=\">> CRITICAL\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=CRITICAL | dedup check | table domain_label check_label result detail score | rename domain_label as Domain, check_label as Check, result as Result, detail as Detail, score as Score",
         "queryParameters": {"earliest":"-90d","latest":"now"},
         "refresh": "5m",
         "refreshType": "delay"
@@ -88,7 +97,7 @@
     "ds_warning_findings": {
       "type": "ds.search",
       "options": {
-        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=WARNING | dedup check | eval Severity=\">> WARNING\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=WARNING | dedup check | table domain_label check_label result detail score | rename domain_label as Domain, check_label as Check, result as Result, detail as Detail, score as Score",
         "queryParameters": {"earliest":"-90d","latest":"now"},
         "refresh": "5m",
         "refreshType": "delay"
@@ -97,7 +106,7 @@
     "ds_info_findings": {
       "type": "ds.search",
       "options": {
-        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=INFO | dedup check | eval Severity=\">> INFO\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=INFO | dedup check | table domain_label check_label result detail score | rename domain_label as Domain, check_label as Check, result as Result, detail as Detail, score as Score",
         "queryParameters": {"earliest":"-90d","latest":"now"},
         "refresh": "5m",
         "refreshType": "delay"
@@ -106,16 +115,7 @@
     "ds_ok_findings": {
       "type": "ds.search",
       "options": {
-        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=OK | dedup check | eval Severity=\">> OK\" | table Severity domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
-        "queryParameters": {"earliest":"-90d","latest":"now"},
-        "refresh": "5m",
-        "refreshType": "delay"
-      }
-    },
-    "ds_audit_log": {
-      "type": "ds.search",
-      "options": {
-        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | head 5 | eval log=\"[\".audit_time.\"] \".event_type.\" | \".if(event_type=\"summary\", \"score=\".overall_score.\" status=\".overall_status, domain_label.\" > \".check_label.\" = \".severity) | table log | rename log as \"Terminal Output\"",
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=finding severity=OK | dedup check | table domain_label check_label result score | rename domain_label as Domain, check_label as Check, result as Result, score as Score",
         "queryParameters": {"earliest":"-90d","latest":"now"},
         "refresh": "5m",
         "refreshType": "delay"
@@ -124,7 +124,7 @@
     "ds_last_audit": {
       "type": "ds.search",
       "options": {
-        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval last_run=audit_time.\" | score=\".overall_score.\" | \".overall_status | table last_run",
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=audit_time.\"  ·  score \".overall_score.\"/100  ·  \".overall_status | table value",
         "queryParameters": {"earliest":"-90d","latest":"now"},
         "refresh": "5m",
         "refreshType": "delay"
@@ -138,231 +138,336 @@
         "refresh": "5m",
         "refreshType": "delay"
       }
+    },
+    "ds_splunk_ver": {
+      "type": "ds.search",
+      "options": {
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=splunk_version | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
+      }
+    },
+    "ds_host": {
+      "type": "ds.search",
+      "options": {
+        "query": "| savedsearch \"SPLUNK-BOT Dashboard Cache\" | search event_type=summary | head 1 | eval value=host | table value",
+        "queryParameters": {"earliest":"-90d","latest":"now"},
+        "refresh": "5m",
+        "refreshType": "delay"
+      }
     }
   },
   "defaults": {},
   "inputs": {},
   "visualizations": {
-    "viz_header": {
+    "viz_title": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "# > SPLUNK-BOT_\n_Platform audit terminal — health scoring and severity analysis_",
+        "markdown": "# ▸ SPLUNK-BOT",
         "fontColor": "#00ff41"
       }
     },
-    "viz_rerun": {
+    "viz_subtitle": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "### [> RUN_AUDIT_](/app/splunk_bot/search?q=%7C%20runaudit&earliest=-1m&latest=now)",
+        "markdown": "_Platform health audit  ·  8 domains  ·  weighted scoring  ·  severity analysis_",
+        "fontColor": "#00994d"
+      }
+    },
+    "viz_run_btn": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "#### [▸ RUN AUDIT](/app/splunk_bot/search?q=%7C%20runaudit&earliest=-1m&latest=now)",
         "fontColor": "#00ff41"
       }
     },
-    "card_top": {
+
+    "card_hero": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#091209","fillOpacity":0.92,"strokeColor":"#00ff41","strokeWidth":1.5,"rx":6}
     },
     "viz_score": {
       "type": "splunk.singlevalue",
-      "title": "HEALTH_SCORE",
+      "title": "HEALTH SCORE",
       "dataSources": {"primary": "ds_score"},
-      "options": {"majorFontSize":60,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off","unit":"/ 100","unitPosition":"after"},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "options": {"majorFontSize":72,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off","unit":"/ 100","unitPosition":"after"},
+      "containerOptions": {"title": {"color": "#00994d"}}
     },
     "viz_status": {
       "type": "splunk.singlevalue",
-      "title": "SYS_STATUS",
+      "title": "STATUS",
       "dataSources": {"primary": "ds_status"},
-      "options": {"majorFontSize":40,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "options": {"majorFontSize":48,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#00994d"}}
+    },
+    "sep_hero": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#00ff41","fillOpacity":0.12,"strokeColor":"transparent","rx":0}
+    },
+    "viz_host": {
+      "type": "splunk.singlevalue",
+      "title": "HOST",
+      "dataSources": {"primary": "ds_host"},
+      "options": {"majorFontSize":22,"majorColor":"#00cc55","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#00994d"}}
+    },
+    "viz_ver": {
+      "type": "splunk.singlevalue",
+      "title": "SPLUNK",
+      "dataSources": {"primary": "ds_splunk_ver"},
+      "options": {"majorFontSize":22,"majorColor":"#00cc55","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#00994d"}}
+    },
+
+    "card_crit_count": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#1a0808","fillOpacity":0.9,"strokeColor":"#ff3b30","strokeWidth":1.5,"rx":6}
     },
     "viz_critical": {
       "type": "splunk.singlevalue",
       "title": "CRITICAL",
       "dataSources": {"primary": "ds_critical"},
-      "options": {"majorFontSize":36,"majorColor":"#ff3b30","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
-      "containerOptions": {"title": {"color": "#ff3b30"}}
+      "options": {"majorFontSize":44,"majorColor":"#ff3b30","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#cc2d26"}}
+    },
+    "card_warn_count": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#1a1508","fillOpacity":0.9,"strokeColor":"#ffcc00","strokeWidth":1.5,"rx":6}
     },
     "viz_warning": {
       "type": "splunk.singlevalue",
       "title": "WARNING",
       "dataSources": {"primary": "ds_warning"},
-      "options": {"majorFontSize":36,"majorColor":"#ffcc00","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
-      "containerOptions": {"title": {"color": "#ffcc00"}}
+      "options": {"majorFontSize":44,"majorColor":"#ffcc00","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#b39200"}}
+    },
+    "card_info_count": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#081218","fillOpacity":0.9,"strokeColor":"#00bfff","strokeWidth":1.5,"rx":6}
     },
     "viz_info": {
       "type": "splunk.singlevalue",
       "title": "INFO",
       "dataSources": {"primary": "ds_info"},
-      "options": {"majorFontSize":36,"majorColor":"#00bfff","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
-      "containerOptions": {"title": {"color": "#00bfff"}}
+      "options": {"majorFontSize":44,"majorColor":"#00bfff","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#0088b3"}}
+    },
+    "card_ok_count": {
+      "type": "splunk.rectangle",
+      "options": {"fillColor":"#081208","fillOpacity":0.9,"strokeColor":"#00ff41","strokeWidth":1.5,"rx":6}
     },
     "viz_ok": {
       "type": "splunk.singlevalue",
       "title": "PASS",
       "dataSources": {"primary": "ds_ok"},
-      "options": {"majorFontSize":36,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "options": {"majorFontSize":44,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#00994d"}}
     },
+
     "card_domains": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#091209","fillOpacity":0.92,"strokeColor":"#1a4a1a","strokeWidth":1,"rx":6}
+    },
+    "viz_domains_label": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ DOMAIN SCORES", "fontColor": "#00994d"}
     },
     "viz_domains": {
       "type": "splunk.column",
-      "title": "DOMAIN_SCORES",
       "dataSources": {"primary": "ds_domains"},
-      "options": {"backgroundColor":"transparent","seriesColors":["#00ff41"],"xAxisTitleVisibility":"hide","yAxisTitleText":"Score","yAxisMax":100},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "options": {
+        "backgroundColor":"transparent",
+        "seriesColors":["#00ff41"],
+        "xAxisTitleVisibility":"hide",
+        "yAxisTitleVisibility":"hide",
+        "yAxisMax":100,
+        "yAxisMin":0,
+        "dataValuesDisplay": "all",
+        "showRoundedStyle": true
+      }
     },
     "card_trend": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#091209","fillOpacity":0.92,"strokeColor":"#1a4a1a","strokeWidth":1,"rx":6}
+    },
+    "viz_trend_label": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ SCORE TREND", "fontColor": "#00994d"}
     },
     "viz_score_trend": {
       "type": "splunk.line",
-      "title": "SCORE_HISTORY",
       "dataSources": {"primary": "ds_score_trend"},
-      "options": {"backgroundColor":"transparent","seriesColors":["#00ff41"],"yAxisTitleText":"Score","xAxisTitleVisibility":"hide","yAxisMax":100},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "options": {
+        "backgroundColor":"transparent",
+        "seriesColors":["#00ff41"],
+        "yAxisTitleVisibility":"hide",
+        "xAxisTitleVisibility":"hide",
+        "yAxisMax":100,
+        "yAxisMin":0,
+        "areaOpacity": 0.08
+      }
     },
-    "card_critical": {
+
+    "viz_findings_header": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "## ▸ FINDINGS", "fontColor": "#00ff41"}
+    },
+
+    "card_crit_tbl": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#ff3b30","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#0f0606","fillOpacity":0.92,"strokeColor":"#ff3b30","strokeWidth":1.5,"rx":6}
+    },
+    "viz_crit_lbl": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ CRITICAL", "fontColor": "#ff3b30"}
     },
     "viz_critical_findings": {
       "type": "splunk.table",
-      "title": ">> CRITICAL FINDINGS",
       "dataSources": {"primary": "ds_critical_findings"},
-      "options": {"backgroundColor":"transparent","count":10},
-      "containerOptions": {"title": {"color": "#ff3b30"}}
+      "options": {"backgroundColor":"transparent","count":10}
     },
-    "card_warning": {
+
+    "card_warn_tbl": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#ffcc00","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#100e04","fillOpacity":0.92,"strokeColor":"#ffcc00","strokeWidth":1.5,"rx":6}
+    },
+    "viz_warn_lbl": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ WARNING", "fontColor": "#ffcc00"}
     },
     "viz_warning_findings": {
       "type": "splunk.table",
-      "title": ">> WARNING FINDINGS",
       "dataSources": {"primary": "ds_warning_findings"},
-      "options": {"backgroundColor":"transparent","count":10},
-      "containerOptions": {"title": {"color": "#ffcc00"}}
+      "options": {"backgroundColor":"transparent","count":10}
     },
-    "card_info": {
+
+    "card_info_tbl": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00bfff","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#060d10","fillOpacity":0.92,"strokeColor":"#00bfff","strokeWidth":1.5,"rx":6}
+    },
+    "viz_info_lbl": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ INFO", "fontColor": "#00bfff"}
     },
     "viz_info_findings": {
       "type": "splunk.table",
-      "title": ">> INFO FINDINGS",
       "dataSources": {"primary": "ds_info_findings"},
-      "options": {"backgroundColor":"transparent","count":10},
-      "containerOptions": {"title": {"color": "#00bfff"}}
+      "options": {"backgroundColor":"transparent","count":10}
     },
-    "card_ok": {
+
+    "card_ok_tbl": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#060f06","fillOpacity":0.92,"strokeColor":"#1a4a1a","strokeWidth":1,"rx":6}
+    },
+    "viz_ok_lbl": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ PASS", "fontColor": "#00994d"}
     },
     "viz_ok_findings": {
       "type": "splunk.table",
-      "title": ">> OK FINDINGS",
       "dataSources": {"primary": "ds_ok_findings"},
-      "options": {"backgroundColor":"transparent","count":10},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "options": {"backgroundColor":"transparent","count":10}
     },
-    "card_log": {
+
+    "card_fix": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#100e04","fillOpacity":0.92,"strokeColor":"#ffcc00","strokeWidth":1.5,"rx":6}
     },
-    "viz_audit_log": {
+    "viz_fix_header": {
+      "type": "splunk.markdown",
+      "options": {"markdown": "##### ▸ FIX PROMPT GENERATOR\n_Copy this into Cursor or ChatGPT to get targeted remediation commands._", "fontColor": "#ffcc00"}
+    },
+    "viz_fix_prompt": {
       "type": "splunk.table",
-      "title": ">> TERMINAL_LOG",
-      "dataSources": {"primary": "ds_audit_log"},
-      "options": {"backgroundColor":"transparent","count":5},
-      "containerOptions": {"title": {"color": "#00ff41"}}
+      "dataSources": {"primary": "ds_fix_prompt"},
+      "options": {"backgroundColor":"transparent","count":1,"wrap":true}
     },
-    "card_run_audit": {
+
+    "card_footer": {
       "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.85,"strokeColor":"#00ff41","strokeDashStyle":1,"rx":4}
+      "options": {"fillColor":"#091209","fillOpacity":0.92,"strokeColor":"#1a4a1a","strokeWidth":1,"rx":6}
     },
-    "viz_run_info": {
+    "viz_footer_run": {
       "type": "splunk.markdown",
       "options": {
-        "markdown": "### > [RUN_AUDIT_NOW](/app/splunk_bot/search?q=%7C%20runaudit&earliest=-1m&latest=now)\n\n_Runs the 8-domain platform audit inside Splunk and writes results to the splunk_bot index. Refresh this dashboard after completion._",
+        "markdown": "#### [▸ RUN AUDIT NOW](/app/splunk_bot/search?q=%7C%20runaudit&earliest=-1m&latest=now)\n_Executes the 8-domain audit inside Splunk. Refresh this dashboard after completion._",
         "fontColor": "#00ff41"
       }
     },
     "viz_last_audit": {
       "type": "splunk.singlevalue",
-      "title": "LAST_AUDIT",
+      "title": "LAST AUDIT",
       "dataSources": {"primary": "ds_last_audit"},
-      "options": {"majorFontSize":20,"majorColor":"#00ff41","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
-      "containerOptions": {"title": {"color": "#00ff41"}}
-    },
-    "card_fix_prompt": {
-      "type": "splunk.rectangle",
-      "options": {"fillColor":"#0a1a0a","fillOpacity":0.9,"strokeColor":"#ffcc00","strokeDashStyle":1,"rx":4}
-    },
-    "viz_fix_label": {
-      "type": "splunk.markdown",
-      "options": {
-        "markdown": "### > FIX_PROMPT_GENERATOR\n_Auto-generated prompt from non-OK findings. Copy and paste into Cursor/ChatGPT to get fix commands._",
-        "fontColor": "#ffcc00"
-      }
-    },
-    "viz_fix_prompt": {
-      "type": "splunk.table",
-      "title": ">> COPY_THIS_PROMPT",
-      "dataSources": {"primary": "ds_fix_prompt"},
-      "options": {"backgroundColor":"transparent","count":1,"wrap":true},
-      "containerOptions": {"title": {"color": "#ffcc00"}}
+      "options": {"majorFontSize":16,"majorColor":"#00cc55","backgroundColor":"transparent","sparklineDisplay":"off","trendDisplay":"off"},
+      "containerOptions": {"title": {"color": "#00994d"}}
     }
   },
   "layout": {
     "type": "absolute",
     "options": {
       "width": 1440,
-      "height": 2350,
+      "height": 2360,
       "display": "auto-scale",
-      "backgroundColor": "transparent",
-      "backgroundImage": {"sizeType":"contain","x":0,"y":0,"src":"/static/app/splunk_bot/terminal_bg.svg"}
+      "backgroundColor": "#030903",
+      "backgroundImage": {"sizeType":"cover","x":0,"y":0,"src":"/static/app/splunk_bot/terminal_bg.svg"}
     },
     "structure": [
-      {"item":"viz_header","type":"block","position":{"x":16,"y":56,"w":1200,"h":48}},
-      {"item":"viz_rerun","type":"block","position":{"x":1220,"y":56,"w":208,"h":48}},
+      {"item":"viz_title","type":"block","position":{"x":28,"y":62,"w":500,"h":40}},
+      {"item":"viz_subtitle","type":"block","position":{"x":28,"y":98,"w":700,"h":26}},
+      {"item":"viz_run_btn","type":"block","position":{"x":1250,"y":70,"w":170,"h":36}},
 
-      {"item":"card_top","type":"block","position":{"x":16,"y":112,"w":1408,"h":150}},
-      {"item":"viz_score","type":"block","position":{"x":30,"y":112,"w":300,"h":150}},
-      {"item":"viz_status","type":"block","position":{"x":340,"y":112,"w":230,"h":150}},
-      {"item":"viz_critical","type":"block","position":{"x":590,"y":112,"w":200,"h":150}},
-      {"item":"viz_warning","type":"block","position":{"x":800,"y":112,"w":200,"h":150}},
-      {"item":"viz_info","type":"block","position":{"x":1010,"y":112,"w":200,"h":150}},
-      {"item":"viz_ok","type":"block","position":{"x":1220,"y":112,"w":200,"h":150}},
+      {"item":"card_hero","type":"block","position":{"x":24,"y":138,"w":1392,"h":175}},
+      {"item":"viz_score","type":"block","position":{"x":40,"y":142,"w":340,"h":168}},
+      {"item":"sep_hero","type":"block","position":{"x":390,"y":158,"w":2,"h":136}},
+      {"item":"viz_status","type":"block","position":{"x":408,"y":142,"w":280,"h":168}},
+      {"item":"sep_hero","type":"block","position":{"x":700,"y":158,"w":2,"h":136}},
+      {"item":"viz_host","type":"block","position":{"x":718,"y":155,"w":340,"h":80}},
+      {"item":"viz_ver","type":"block","position":{"x":718,"y":230,"w":340,"h":76}},
+      {"item":"sep_hero","type":"block","position":{"x":1070,"y":158,"w":2,"h":136}},
+      {"item":"viz_last_audit","type":"block","position":{"x":1088,"y":155,"w":310,"h":148}},
 
-      {"item":"card_domains","type":"block","position":{"x":16,"y":276,"w":830,"h":300}},
-      {"item":"viz_domains","type":"block","position":{"x":24,"y":276,"w":814,"h":300}},
-      {"item":"card_trend","type":"block","position":{"x":860,"y":276,"w":564,"h":300}},
-      {"item":"viz_score_trend","type":"block","position":{"x":868,"y":276,"w":548,"h":300}},
+      {"item":"card_crit_count","type":"block","position":{"x":24,"y":328,"w":342,"h":130}},
+      {"item":"viz_critical","type":"block","position":{"x":24,"y":328,"w":342,"h":130}},
+      {"item":"card_warn_count","type":"block","position":{"x":382,"y":328,"w":342,"h":130}},
+      {"item":"viz_warning","type":"block","position":{"x":382,"y":328,"w":342,"h":130}},
+      {"item":"card_info_count","type":"block","position":{"x":740,"y":328,"w":342,"h":130}},
+      {"item":"viz_info","type":"block","position":{"x":740,"y":328,"w":342,"h":130}},
+      {"item":"card_ok_count","type":"block","position":{"x":1098,"y":328,"w":318,"h":130}},
+      {"item":"viz_ok","type":"block","position":{"x":1098,"y":328,"w":318,"h":130}},
 
-      {"item":"card_critical","type":"block","position":{"x":16,"y":590,"w":700,"h":300}},
-      {"item":"viz_critical_findings","type":"block","position":{"x":24,"y":590,"w":684,"h":300}},
-      {"item":"card_warning","type":"block","position":{"x":730,"y":590,"w":694,"h":300}},
-      {"item":"viz_warning_findings","type":"block","position":{"x":738,"y":590,"w":678,"h":300}},
+      {"item":"card_domains","type":"block","position":{"x":24,"y":474,"w":850,"h":340}},
+      {"item":"viz_domains_label","type":"block","position":{"x":40,"y":478,"w":300,"h":28}},
+      {"item":"viz_domains","type":"block","position":{"x":32,"y":506,"w":834,"h":302}},
+      {"item":"card_trend","type":"block","position":{"x":890,"y":474,"w":526,"h":340}},
+      {"item":"viz_trend_label","type":"block","position":{"x":906,"y":478,"w":300,"h":28}},
+      {"item":"viz_score_trend","type":"block","position":{"x":898,"y":506,"w":510,"h":302}},
 
-      {"item":"card_info","type":"block","position":{"x":16,"y":904,"w":700,"h":300}},
-      {"item":"viz_info_findings","type":"block","position":{"x":24,"y":904,"w":684,"h":300}},
-      {"item":"card_ok","type":"block","position":{"x":730,"y":904,"w":694,"h":300}},
-      {"item":"viz_ok_findings","type":"block","position":{"x":738,"y":904,"w":678,"h":300}},
+      {"item":"viz_findings_header","type":"block","position":{"x":28,"y":832,"w":400,"h":36}},
 
-      {"item":"card_log","type":"block","position":{"x":16,"y":1218,"w":1408,"h":200}},
-      {"item":"viz_audit_log","type":"block","position":{"x":24,"y":1218,"w":1392,"h":200}},
+      {"item":"card_crit_tbl","type":"block","position":{"x":24,"y":878,"w":694,"h":280}},
+      {"item":"viz_crit_lbl","type":"block","position":{"x":40,"y":882,"w":200,"h":28}},
+      {"item":"viz_critical_findings","type":"block","position":{"x":32,"y":910,"w":678,"h":242}},
 
-      {"item":"card_fix_prompt","type":"block","position":{"x":16,"y":1432,"w":1408,"h":320}},
-      {"item":"viz_fix_label","type":"block","position":{"x":24,"y":1432,"w":1392,"h":60}},
-      {"item":"viz_fix_prompt","type":"block","position":{"x":24,"y":1496,"w":1392,"h":250}},
+      {"item":"card_warn_tbl","type":"block","position":{"x":734,"y":878,"w":682,"h":280}},
+      {"item":"viz_warn_lbl","type":"block","position":{"x":750,"y":882,"w":200,"h":28}},
+      {"item":"viz_warning_findings","type":"block","position":{"x":742,"y":910,"w":666,"h":242}},
 
-      {"item":"card_run_audit","type":"block","position":{"x":16,"y":1766,"w":1408,"h":140}},
-      {"item":"viz_run_info","type":"block","position":{"x":24,"y":1766,"w":900,"h":140}},
-      {"item":"viz_last_audit","type":"block","position":{"x":940,"y":1766,"w":470,"h":140}}
+      {"item":"card_info_tbl","type":"block","position":{"x":24,"y":1174,"w":694,"h":280}},
+      {"item":"viz_info_lbl","type":"block","position":{"x":40,"y":1178,"w":200,"h":28}},
+      {"item":"viz_info_findings","type":"block","position":{"x":32,"y":1206,"w":678,"h":242}},
+
+      {"item":"card_ok_tbl","type":"block","position":{"x":734,"y":1174,"w":682,"h":280}},
+      {"item":"viz_ok_lbl","type":"block","position":{"x":750,"y":1178,"w":200,"h":28}},
+      {"item":"viz_ok_findings","type":"block","position":{"x":742,"y":1206,"w":666,"h":242}},
+
+      {"item":"card_fix","type":"block","position":{"x":24,"y":1470,"w":1392,"h":300}},
+      {"item":"viz_fix_header","type":"block","position":{"x":40,"y":1474,"w":1360,"h":56}},
+      {"item":"viz_fix_prompt","type":"block","position":{"x":32,"y":1530,"w":1376,"h":234}},
+
+      {"item":"card_footer","type":"block","position":{"x":24,"y":1786,"w":1392,"h":110}},
+      {"item":"viz_footer_run","type":"block","position":{"x":40,"y":1790,"w":800,"h":102}},
+      {"item":"viz_last_audit","type":"block","position":{"x":860,"y":1800,"w":540,"h":88}}
     ]
   }
 }

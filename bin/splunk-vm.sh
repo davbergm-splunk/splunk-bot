@@ -153,6 +153,7 @@ cmd_restart_splunk() {
 }
 
 cmd_open() {
+    local target="${2:-/en-GB/app/splunk_bot/bot_audit}"
     echo -e "${GRN}> Auto-login to Splunk Web...${RST}"
 
     local session_key
@@ -168,50 +169,41 @@ cmd_open() {
         return 1
     fi
 
-    local cookie_file
-    cookie_file=$(mktemp)
+    echo -e "${DIM}  Got session token, setting cookie via redirect...${RST}"
 
-    curl -sk -o /dev/null -D - \
-        -H "Authorization: Splunk ${session_key}" \
-        "http://127.0.0.1:${SPLUNK_WEB_PORT}/en-GB/app/splunk_bot/bot_audit" \
-        2>/dev/null | grep -i 'set-cookie' | head -1 | sed 's/.*: //' > "$cookie_file"
+    local redir_port=9876
+    python3 -c "
+import http.server, threading, time, sys, os
 
-    local splunk_cookie
-    splunk_cookie=$(cat "$cookie_file")
-    rm -f "$cookie_file"
+SESSION_KEY = '${session_key}'
+TARGET = 'http://127.0.0.1:${SPLUNK_WEB_PORT}${target}'
+PORT = ${redir_port}
 
-    if [[ -n "$splunk_cookie" ]]; then
-        local cookie_name cookie_value
-        cookie_name=$(echo "$splunk_cookie" | cut -d= -f1)
-        cookie_value=$(echo "$splunk_cookie" | cut -d= -f2 | cut -d\; -f1)
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(302)
+        self.send_header('Location', TARGET)
+        self.send_header('Set-Cookie',
+            f'splunkd_${SPLUNK_MGMT_PORT}={SESSION_KEY}; Path=/; HttpOnly')
+        self.send_header('Set-Cookie',
+            f'token_key={SESSION_KEY}; Path=/')
+        self.end_headers()
+        threading.Thread(target=lambda: (time.sleep(2), os._exit(0))).start()
+    def log_message(self, *a): pass
 
-        python3 -c "
-import http.cookiejar, http.cookies, os, subprocess, tempfile, time
+srv = http.server.HTTPServer(('127.0.0.1', PORT), Handler)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+time.sleep(0.2)
+" &
+    local py_pid=$!
+    sleep 0.5
 
-cookie_jar = http.cookiejar.MozillaCookieJar()
-cookie_jar.set_cookie(http.cookiejar.Cookie(
-    version=0, name='${cookie_name}', value='${cookie_value}',
-    port=None, port_specified=False,
-    domain='127.0.0.1', domain_specified=True, domain_initial_dot=False,
-    path='/', path_specified=True,
-    secure=False, expires=int(time.time()) + 3600,
-    discard=False, comment=None, comment_url=None,
-    rest={}, rfc2109=False
-))
-f = tempfile.NamedTemporaryFile(suffix='.txt', delete=False, mode='w')
-cookie_jar.filename = f.name
-cookie_jar.save()
-f.close()
-print(f.name)
-" 2>/dev/null
+    open "http://127.0.0.1:${redir_port}/"
+    sleep 3
+    kill "$py_pid" 2>/dev/null
 
-        echo -e "${GRN}> Session authenticated. Opening browser...${RST}"
-    else
-        echo -e "${YLW}> Could not extract cookie, opening with login...${RST}"
-    fi
-
-    open "http://127.0.0.1:${SPLUNK_WEB_PORT}/en-GB/app/splunk_bot/bot_audit"
-    echo -e "${GRN}> Opened http://127.0.0.1:${SPLUNK_WEB_PORT}${RST}"
+    echo -e "${GRN}> Opened Splunk Web with auto-login${RST}"
+    echo -e "${DIM}  ${target}${RST}"
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -219,18 +211,18 @@ case "${1:-status}" in
     start)           cmd_start ;;
     stop)            cmd_stop ;;
     status)          cmd_status ;;
-    open)            cmd_open ;;
+    open)            cmd_open "$@" ;;
     ssh)             cmd_ssh ;;
     restart|restart-splunk) cmd_restart_splunk ;;
     *)
-        echo "Usage: $0 {start|stop|status|open|ssh|restart}"
+        echo "Usage: $0 {start|stop|status|open [/path]|ssh|restart}"
         echo ""
-        echo "  start    Boot the QEMU VM"
-        echo "  stop     Shutdown the VM"
-        echo "  status   Show VM and Splunk status"
-        echo "  open     Auto-login and open Splunk Web"
-        echo "  ssh      Open SSH session to VM"
-        echo "  restart  Restart Splunk inside VM"
+        echo "  start        Boot the QEMU VM"
+        echo "  stop         Shutdown the VM"
+        echo "  status       Show VM and Splunk status"
+        echo "  open [path]  Auto-login and open Splunk Web (default: bot_audit dashboard)"
+        echo "  ssh          Open SSH session to VM"
+        echo "  restart      Restart Splunk inside VM"
         exit 1
         ;;
 esac
