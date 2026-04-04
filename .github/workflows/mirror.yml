@@ -15,10 +15,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push to mirror
+      - name: Push to GitHub mirror
         run: |
           git remote add mirror https://x-access-token:${{ secrets.MIRROR_PAT }}@github.com/DaveBergman/${{ github.event.repository.name }}.git
           git push mirror main --force
+        continue-on-error: true
 
       - name: Push to GitLab backup
         if: always()
